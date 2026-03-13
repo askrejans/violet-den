@@ -399,133 +399,157 @@ function _runTelnet(host, port, command, res) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Shared SSH session helper ────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function resolveSSHCredentials({ serviceId, host, port, username, password }) {
+  if (serviceId) {
+    const svc = db.prepare('SELECT * FROM ssh_services WHERE id = ?').get(serviceId);
+    if (!svc) return { error: 'Server not found' };
+    return { host: svc.host, port: svc.port, username: svc.username, password: decrypt(svc.password) };
+  }
+  return { host, port: Number(port) || 22, username: username || '', password: password || '' };
+}
+
+function createSSHSession({ host, port, username, password, cols, rows }, callbacks) {
+  const sshConn = new Client();
+  let stream = null;
+
+  sshConn.on('ready', () => {
+    sshConn.shell({ term: 'xterm-256color', cols: cols || 80, rows: rows || 24 }, (err, s) => {
+      if (err) { callbacks.onError(`Shell error: ${err.message}`); return; }
+      stream = s;
+      callbacks.onConnected(stream);
+      s.on('data', (data) => callbacks.onData(data.toString('binary')));
+      s.stderr.on('data', (data) => callbacks.onData(data.toString('binary')));
+      s.on('close', () => callbacks.onDisconnected());
+    });
+  });
+
+  sshConn.on('error', (err) => callbacks.onError(`SSH error: ${err.message}`));
+  sshConn.on('close', () => callbacks.onDisconnected());
+
+  sshConn.connect({ host, port, username, password, readyTimeout: 15000, keepaliveInterval: 30000 });
+
+  return { conn: sshConn, getStream: () => stream };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ── WebSocket SSH Terminal ────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 const wss = new WebSocketServer({ server, path: '/ws/terminal', perMessageDeflate: false });
 
 wss.on('connection', (ws, req) => {
-  // Authenticate via query param: ?token=xxx
   const url    = new URL(req.url, `http://${req.headers.host}`);
   const token  = url.searchParams.get('token');
 
-  console.log('[WS] New connection attempt');
+  if (!isValidToken(token)) { ws.close(4001, 'Unauthorized'); return; }
 
-  if (!isValidToken(token)) {
-    console.log('[WS] Invalid token, closing');
-    ws.close(4001, 'Unauthorized');
-    return;
-  }
-
-  console.log('[WS] Authenticated OK');
-
-  let sshConn  = null;
-  let sshReady = false;
+  let session = null;
 
   ws.on('message', (raw) => {
-    console.log('[WS] Raw message received, length:', raw.length, 'type:', typeof raw);
     let msg;
-    try { msg = JSON.parse(raw); } catch (e) { console.log('[WS] JSON parse error:', e.message); return; }
+    try { msg = JSON.parse(raw); } catch { return; }
 
-    console.log('[WS] Message type:', msg.type, msg.serviceId ? `serviceId=${msg.serviceId}` : msg.host || '');
-
-    // ── Connect to SSH server ──
     if (msg.type === 'connect') {
-      const { serviceId, host, port, username, password } = msg;
-      let connHost, connPort, connUser, connPass;
+      const creds = resolveSSHCredentials(msg);
+      if (creds.error) { ws.send(JSON.stringify({ type: 'error', data: creds.error })); return; }
 
-      if (serviceId) {
-        // Saved server
-        const svc = db.prepare('SELECT * FROM ssh_services WHERE id = ?').get(serviceId);
-        if (!svc) { ws.send(JSON.stringify({ type: 'error', data: 'Server not found' })); return; }
-        connHost = svc.host;
-        connPort = svc.port;
-        connUser = svc.username;
-        connPass = decrypt(svc.password);
-      } else {
-        // Free-form
-        connHost = host;
-        connPort = Number(port) || 22;
-        connUser = username || '';
-        connPass = password || '';
-      }
+      if (session) { try { session.conn.end(); } catch {} }
 
-      if (sshConn) { try { sshConn.end(); } catch {} }
-
-      sshConn = new Client();
-
-      console.log(`[WS] SSH connecting to ${connHost}:${connPort} as ${connUser}`);
-
-      sshConn.on('ready', () => {
-        console.log('[WS] SSH ready, requesting shell');
-        sshReady = true;
-        sshConn.shell({ term: 'xterm-256color', cols: msg.cols || 80, rows: msg.rows || 24 }, (err, stream) => {
-          if (err) {
-            ws.send(JSON.stringify({ type: 'error', data: `Shell error: ${err.message}` }));
-            return;
-          }
-
-          ws.send(JSON.stringify({ type: 'connected' }));
-
-          stream.on('data', (data) => {
-            if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'data', data: data.toString('binary') }));
-          });
-
-          stream.stderr.on('data', (data) => {
-            if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'data', data: data.toString('binary') }));
-          });
-
-          stream.on('close', () => {
-            if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'disconnected' }));
-            sshReady = false;
-          });
-
-          // Forward terminal input from client to SSH
-          ws._sshStream = stream;
-        });
-      });
-
-      sshConn.on('error', (err) => {
-        console.log('[WS] SSH error:', err.message);
-        ws.send(JSON.stringify({ type: 'error', data: `SSH error: ${err.message}` }));
-        sshReady = false;
-      });
-
-      sshConn.on('close', () => {
-        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'disconnected' }));
-        sshReady = false;
-      });
-
-      sshConn.connect({
-        host: connHost,
-        port: connPort,
-        username: connUser,
-        password: connPass,
-        readyTimeout: 15000,
-        keepaliveInterval: 30000,
+      session = createSSHSession({ ...creds, cols: msg.cols, rows: msg.rows }, {
+        onConnected: () => { ws.send(JSON.stringify({ type: 'connected' })); },
+        onData:      (data) => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'data', data })); },
+        onError:     (data) => { ws.send(JSON.stringify({ type: 'error', data })); },
+        onDisconnected: () => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'disconnected' })); },
       });
     }
 
-    // ── Terminal input ──
-    if (msg.type === 'input' && ws._sshStream) {
-      ws._sshStream.write(msg.data);
+    if (msg.type === 'input' && session?.getStream()) {
+      session.getStream().write(msg.data);
     }
 
-    // ── Resize ──
-    if (msg.type === 'resize' && ws._sshStream) {
-      ws._sshStream.setWindow(msg.rows, msg.cols, 0, 0);
+    if (msg.type === 'resize' && session?.getStream()) {
+      session.getStream().setWindow(msg.rows, msg.cols, 0, 0);
     }
 
-    // ── Disconnect ──
-    if (msg.type === 'disconnect') {
-      if (sshConn) { try { sshConn.end(); } catch {} }
-      sshConn  = null;
-      sshReady = false;
+    if (msg.type === 'disconnect' && session) {
+      try { session.conn.end(); } catch {}
+      session = null;
     }
   });
 
   ws.on('close', () => {
-    if (sshConn) { try { sshConn.end(); } catch {} }
+    if (session) { try { session.conn.end(); } catch {} }
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── HTTP Polling Terminal (Safari fallback) ──────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+const pollingSessions = new Map();
+
+// Cleanup stale sessions every 30s
+const pollingCleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [id, sess] of pollingSessions) {
+    if (now - sess.lastAccess > 5 * 60 * 1000) {
+      try { sess.conn.end(); } catch {}
+      pollingSessions.delete(id);
+    }
+  }
+}, 30000);
+if (pollingCleanupInterval.unref) pollingCleanupInterval.unref();
+
+app.post('/api/terminal/create', requireAuth, (req, res) => {
+  const creds = resolveSSHCredentials(req.body);
+  if (creds.error) return res.status(400).json({ error: creds.error });
+
+  const sessionId = crypto.randomUUID();
+  const outputBuffer = [];
+
+  const session = createSSHSession({ ...creds, cols: req.body.cols, rows: req.body.rows }, {
+    onConnected:    () => { outputBuffer.push({ type: 'connected' }); },
+    onData:         (data) => { outputBuffer.push({ type: 'data', data }); },
+    onError:        (data) => { outputBuffer.push({ type: 'error', data }); },
+    onDisconnected: () => { outputBuffer.push({ type: 'disconnected' }); },
+  });
+
+  pollingSessions.set(sessionId, {
+    ...session,
+    outputBuffer,
+    lastAccess: Date.now(),
+    authToken: req.headers.authorization,
+  });
+
+  res.json({ sessionId });
+});
+
+app.post('/api/terminal/:id/input', requireAuth, (req, res) => {
+  const sess = pollingSessions.get(req.params.id);
+  if (!sess) return res.status(404).json({ error: 'Session not found' });
+  if (sess.authToken !== req.headers.authorization) return res.status(403).json({ error: 'Forbidden' });
+
+  sess.lastAccess = Date.now();
+  const { type, data, cols, rows } = req.body;
+
+  if (type === 'input' && sess.getStream()) sess.getStream().write(data);
+  if (type === 'resize' && sess.getStream()) sess.getStream().setWindow(rows, cols, 0, 0);
+  if (type === 'disconnect') {
+    try { sess.conn.end(); } catch {}
+    pollingSessions.delete(req.params.id);
+  }
+
+  res.json({ success: true });
+});
+
+app.get('/api/terminal/:id/poll', requireAuth, (req, res) => {
+  const sess = pollingSessions.get(req.params.id);
+  if (!sess) return res.status(404).json({ error: 'Session not found' });
+  if (sess.authToken !== req.headers.authorization) return res.status(403).json({ error: 'Forbidden' });
+
+  sess.lastAccess = Date.now();
+  const messages = sess.outputBuffer.splice(0);
+  res.json({ messages });
 });
 
 // ── Certificate status (protected) ────────────────────────────────────────────

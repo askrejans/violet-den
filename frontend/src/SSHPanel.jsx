@@ -3,6 +3,7 @@ import { api, getToken } from './api';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { HttpTransport, shouldUsePolling } from './HttpTransport';
 import '@xterm/xterm/css/xterm.css';
 
 /* ── Error Boundary — prevents xterm crashes from killing the whole UI ── */
@@ -244,15 +245,20 @@ function XTerminal({ serviceId, freeConn, onDisconnect }) {
     setTimeout(doFit, 100);
     setTimeout(doFit, 300);
 
-    // Build WebSocket URL
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const token = getToken();
-    const wsUrl = `${proto}//${window.location.host}/ws/terminal?token=${encodeURIComponent(token)}`;
-
-    ws = new WebSocket(wsUrl);
+    // Build transport — HTTP polling for Safari, WebSocket for others
+    const usePolling = shouldUsePolling();
+    if (usePolling) {
+      ws = new HttpTransport();
+    } else {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const token = getToken();
+      const wsUrl = `${proto}//${window.location.host}/ws/terminal?token=${encodeURIComponent(token)}`;
+      ws = new WebSocket(wsUrl);
+    }
     wsRef.current = ws;
 
-    ws.onopen = () => {
+    // Send connect message — for WebSocket this happens on open, for HttpTransport immediately
+    const sendConnect = () => {
       try { fit.fit(); } catch {}
       const connectMsg = serviceId
         ? { type: 'connect', serviceId, cols: term.cols, rows: term.rows }
@@ -260,6 +266,12 @@ function XTerminal({ serviceId, freeConn, onDisconnect }) {
       ws.send(JSON.stringify(connectMsg));
       term.writeln('\x1b[38;5;141mConnecting...\x1b[0m');
     };
+
+    if (usePolling) {
+      sendConnect();
+    } else {
+      ws.onopen = sendConnect;
+    }
 
     ws.onmessage = (e) => {
       let msg;
@@ -294,7 +306,7 @@ function XTerminal({ serviceId, freeConn, onDisconnect }) {
 
     // Forward keyboard input to SSH
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === 1) {
         ws.send(JSON.stringify({ type: 'input', data }));
       }
     });
@@ -305,7 +317,7 @@ function XTerminal({ serviceId, freeConn, onDisconnect }) {
       resizeTimeout = setTimeout(() => {
         try {
           fit.fit();
-          if (ws.readyState === WebSocket.OPEN) {
+          if (ws.readyState === 1) {
             ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
           }
         } catch {}
@@ -319,7 +331,7 @@ function XTerminal({ serviceId, freeConn, onDisconnect }) {
       clearTimeout(resizeTimeout);
       if (resizeObs) resizeObs.disconnect();
       try {
-        if (ws && ws.readyState === WebSocket.OPEN) {
+        if (ws && ws.readyState === 1) {
           ws.send(JSON.stringify({ type: 'disconnect' }));
         }
         if (ws) ws.close();
@@ -329,13 +341,13 @@ function XTerminal({ serviceId, freeConn, onDisconnect }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendCommand = useCallback((cmd) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === 1) {
       wsRef.current.send(JSON.stringify({ type: 'input', data: cmd + '\n' }));
     }
   }, []);
 
   const disconnect = () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === 1) {
       wsRef.current.send(JSON.stringify({ type: 'disconnect' }));
       wsRef.current.close();
     }
