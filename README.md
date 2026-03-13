@@ -201,6 +201,45 @@ VioletDen automatically generates a self-signed certificate on first Docker star
 4. Keep Docker volumes backed up (especially `data` for the encryption key)
 5. Consider placing the app behind a VPN for additional network-level security
 
-## License
+## Running Tests
+
+VioletDen includes unit and integration tests for both backend and frontend.
+
+### Backend
+
+```bash
+cd backend
+npm install
+npx jest
+```
+
+Backend tests (`backend/__tests__/`) cover:
+- **db.js** — config helpers (get/set/overwrite/fallback), AES-256-GCM encrypt/decrypt (round-trip, empty input, unicode, special chars)
+- **Auth** — login success/failure, rate limiting, requireAuth middleware (missing header, invalid token, expired session)
+- **Token validation** — valid/invalid/missing tokens via `/api/validate-token`
+- **Setup** — first-time setup flow, credential saving, sections, blocking repeated setup
+- **Sections** — public read, authenticated write, invalid JSON handling
+- **SSH Services CRUD** — create/read/update/delete, password masking, password preservation on update
+- **Saved Commands CRUD** — create/read/update/delete, cascade delete with service
+- **Credentials** — change-creds validation and persistence
+- **Clear Data** — clearing sections, SSH services, credentials, and full factory reset
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npx jest
+```
+
+Frontend tests (`frontend/src/__tests__/`) cover:
+- **api.js** — token get/set/clear, Authorization header injection, Content-Type auto-set, fetch passthrough
+- **App** — setup status routing (loading → onboarding vs login), fetch error handling
+- **Onboarding** — credential validation (empty, short password, mismatch), save button enable/disable, server errors, successful setup
+- **AuthWrapper** — login form rendering, token validation on mount (valid/invalid/unreachable), login success/failure, loading state
+- **SettingsPanel** — tab rendering, tab switching, close callback
+- **IconPicker** — `isMaterialIcon` helper, icon list integrity, dropdown open/search/filter/select/clear
+
+All new features and significant changes should include or update tests. Pull requests must pass all tests.
 
 [MIT](LICENSE)

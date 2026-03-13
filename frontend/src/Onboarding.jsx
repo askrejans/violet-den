@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import IconPicker, { isMaterialIcon } from './IconPicker';
+import { getPresetSections } from './viteEnv';
 
 function IconDisplay({ value }) {
   if (!value) return null;
@@ -8,11 +9,7 @@ function IconDisplay({ value }) {
     : <span>{value}</span>;
 }
 
-/* Load preset sections from VITE_PRESET_SECTIONS env var */
-const loadPreset = () => {
-  try { return JSON.parse(import.meta.env.VITE_PRESET_SECTIONS) || []; }
-  catch { return []; }
-};
+const loadPreset = getPresetSections;
 
 function DraggableLinks({ links, setLinks }) {
   const [draggedIdx, setDraggedIdx] = useState(null);

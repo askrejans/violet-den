@@ -564,5 +564,9 @@ app.post('/api/clear-data', requireAuth, (req, res) => {
 });
 
 // ── Start ────────────────────────────────────────────────────────────────────
-const PORT = process.env.BACKEND_PORT || 4000;
-server.listen(PORT, () => console.log(`Backend listening on port ${PORT}`));
+if (process.env.NODE_ENV !== 'test') {
+  const PORT = process.env.BACKEND_PORT || 4000;
+  server.listen(PORT, () => console.log(`Backend listening on port ${PORT}`));
+}
+
+module.exports = app;

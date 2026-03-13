@@ -152,11 +152,38 @@ BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose build && docker compose up
 2. Add the tab button to the `settings-tabs` array
 3. Add conditional render in `settings-body`
 
-### Adding a new frontend panel/page
 
 1. Create component in `frontend/src/`
 2. Import and render in `App.jsx` (no router — all panels are inline or overlay)
 3. Add styles to `App.css`
+
+### Testing
+
+**Always run all tests after significant changes or before submitting a pull request.**
+
+Run backend tests:
+```bash
+cd backend
+npx jest
+```
+
+Run frontend tests:
+```bash
+cd frontend
+npx jest
+```
+
+Test locations:
+- Backend: `backend/__tests__/` — Jest with Node environment, supertest for API endpoints
+- Frontend: `frontend/src/__tests__/` — Jest with jsdom, React Testing Library
+
+Key testing rules:
+- **Run tests after every significant change** — new features, bugfixes, refactors, API changes
+- **Add tests for new functionality** — every new API endpoint needs at least a happy-path and error-case test; every new component needs render and interaction tests
+- **Update tests when modifying existing behavior** — if you change an endpoint's response shape or a component's UI, update the corresponding tests
+- **All tests must pass before merging** — do not merge with failing tests
+- Frontend mocks: `viteEnv` and `SSHPanel` are mocked in tests; CSS modules use `identity-obj-proxy`
+- Backend tests share a single in-process SQLite DB; use `beforeEach` to clean up test state
 
 ## Security Notes
 
