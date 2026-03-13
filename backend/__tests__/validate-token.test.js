@@ -1,7 +1,12 @@
 const request = require('supertest');
 const app = require('../index');
+const { db } = require('../db');
 
 describe('/api/validate-token', () => {
+  beforeEach(() => {
+    db.prepare("DELETE FROM config WHERE key IN ('admin_username', 'admin_password')").run();
+  });
+
   it('returns valid: false with no auth header', async () => {
     const res = await request(app).get('/api/validate-token');
     expect(res.statusCode).toBe(200);

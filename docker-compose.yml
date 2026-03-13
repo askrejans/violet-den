@@ -43,6 +43,7 @@ services:
       - BACKEND_PORT=${BACKEND_PORT:-4000}
       - ADMIN_USERNAME
       - ADMIN_PASSWORD
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
       - CERT_DIR=/certs
       - DATA_DIR=/data
     restart: unless-stopped

@@ -28,6 +28,16 @@ app.use(express.json());
 
 const CERT_DIR = process.env.CERT_DIR || path.join(__dirname, '../certs');
 
+// ── Home Assistant integration mode ─────────────────────────────────────────
+const HA_INTEGRATION = process.env.HA_INTEGRATION === 'true';
+const HA_URL         = process.env.HA_URL || null;
+
+// Serve built frontend static files in HA mode (single-container deployment)
+const DIST_DIR = path.join(__dirname, 'dist');
+if (fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+}
+
 // ── Session tokens (in-memory) ──────────────────────────────────────────────
 const activeSessions = new Map();  // token → { created, username }
 const SESSION_TTL    = 24 * 60 * 60 * 1000;  // 24h
@@ -87,7 +97,12 @@ const backendVersion = (() => {
     return null;
   }
 })();
-app.get('/', (req, res) => res.json({ status: 'Backend running', version: backendVersion }));
+app.get('/', (req, res) => {
+  if (fs.existsSync(DIST_DIR)) {
+    return res.sendFile(path.join(DIST_DIR, 'index.html'));
+  }
+  res.json({ status: 'Backend running', version: backendVersion, ha_mode: HA_INTEGRATION });
+});
 
 // ── Login (public, rate-limited) ─────────────────────────────────────────────
 app.post('/api/login', (req, res) => {
@@ -109,6 +124,50 @@ app.post('/api/login', (req, res) => {
   }
 });
 
+// ── Home Assistant auth (public — validates HA token, returns VioletDen session) ─
+app.post('/api/ha-auth', async (req, res) => {
+  if (!HA_INTEGRATION) {
+    return res.status(404).json({ error: 'HA integration not enabled' });
+  }
+  if (!HA_URL) {
+    return res.status(500).json({ error: 'HA_URL not configured' });
+  }
+
+  const { ha_token } = req.body;
+  if (!ha_token) {
+    return res.status(400).json({ error: 'ha_token required' });
+  }
+
+  // Validate the HA access token against the HA API
+  try {
+    const haRes = await fetch(`${HA_URL}/api/`, {
+      headers: { 'Authorization': `Bearer ${ha_token}` },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!haRes.ok) {
+      return res.status(401).json({ error: 'Invalid Home Assistant token' });
+    }
+
+    // HA token is valid — ensure setup is complete (auto-setup if needed)
+    if (getConfig('admin_username', null) === null) {
+      // Auto-complete setup for HA mode with generated credentials
+      const autoUser = 'ha-admin';
+      const autoPass = crypto.randomBytes(32).toString('hex');
+      setConfig('admin_username', autoUser);
+      setConfig('admin_password', autoPass);
+    }
+
+    // Create a VioletDen session
+    cleanSessions();
+    const token = crypto.randomBytes(32).toString('hex');
+    activeSessions.set(token, { created: Date.now(), username: 'ha-user' });
+    res.json({ success: true, token });
+  } catch (err) {
+    return res.status(502).json({ error: `Cannot reach Home Assistant: ${err.message}` });
+  }
+});
+
 // ── Token validation (public — used by frontend to check if session is alive) ─
 app.get('/api/validate-token', (req, res) => {
   const header = req.headers.authorization;
@@ -122,7 +181,7 @@ app.get('/api/validate-token', (req, res) => {
 // ── Setup status (public — check if first-time setup is needed) ──────────────
 app.get('/api/setup-status', (req, res) => {
   const hasCustomCreds = getConfig('admin_username', null) !== null;
-  res.json({ setup_complete: hasCustomCreds });
+  res.json({ setup_complete: hasCustomCreds, ha_mode: HA_INTEGRATION });
 });
 
 // ── First-time setup (public — only works when no custom creds have been set) ─
@@ -562,6 +621,14 @@ app.post('/api/clear-data', requireAuth, (req, res) => {
   }
   res.json({ success: true, message: `Cleared: ${target}` });
 });
+
+// ── SPA fallback — serve index.html for non-API routes (single-container mode) ─
+if (fs.existsSync(DIST_DIR)) {
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/ws/')) return res.status(404).json({ error: 'Not found' });
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+}
 
 // ── Start ────────────────────────────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'test') {

@@ -1,0 +1,12 @@
+{
+  "domain": "violetden",
+  "name": "VioletDen",
+  "version": "1.0.0",
+  "documentation": "https://github.com/askrejans/violet-den/blob/main/homeassistant/INSTALL.md",
+  "issue_tracker": "https://github.com/askrejans/violet-den/issues",
+  "codeowners": ["@askrejans"],
+  "config_flow": true,
+  "iot_class": "local_polling",
+  "requirements": [],
+  "integration_type": "service"
+}

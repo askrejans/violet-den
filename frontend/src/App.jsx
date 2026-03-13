@@ -4,7 +4,7 @@ import AuthWrapper from './AuthWrapper';
 import SSHPanel from './SSHPanel';
 import Onboarding from './Onboarding';
 import IconPicker, { isMaterialIcon } from './IconPicker';
-import { api } from './api';
+import { api, haAuth, setHaMode, isHaMode, setToken, getToken } from './api';
 import SettingsPanel from './SettingsPanel';
 
 /* Render a stored icon value — Material Icon name or emoji/text */
@@ -408,22 +408,76 @@ function Dashboard({ showSettings, setShowSettings }) {
 
 /* ══════════════════════════════════════════════════════════════
    APP — Routes: Setup check → Onboarding OR Auth → Dashboard
+   Supports standalone mode and Home Assistant embedded mode.
    ══════════════════════════════════════════════════════════════ */
 function App() {
   const [checking,      setChecking]      = useState(true);
   const [setupComplete, setSetupComplete] = useState(false);
+  const [haAuthed,      setHaAuthed]      = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
 
+  // Check setup status and detect HA mode
   useEffect(() => {
     fetch('/api/setup-status')
       .then(r => r.json())
-      .then(data => setSetupComplete(data.setup_complete))
+      .then(data => {
+        setSetupComplete(data.setup_complete);
+        if (data.ha_mode) setHaMode(true);
+      })
       .catch(() => {})
       .finally(() => setChecking(false));
   }, []);
 
+  // Listen for HA auth messages from parent panel (postMessage)
+  useEffect(() => {
+    const handleMessage = async (event) => {
+      const data = event.data;
+      if (!data || typeof data !== 'object' || data.type !== 'ha-auth') return;
+      if (!data.token) return;
+
+      setHaMode(true);
+      const ok = await haAuth(data.token);
+      if (ok) {
+        setHaAuthed(true);
+        setSetupComplete(true);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    // Signal to parent panel that we are ready to receive auth
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: 'violetden-ready' }, '*');
+    }
+
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   if (checking) {
+    return (
+      <div className="auth-screen">
+        <div className="app-logo-wrap" style={{ margin: '0 auto' }}>
+          <img src="/favicon.svg" className="app-logo" alt="" />
+        </div>
+      </div>
+    );
+  }
+
+  // In HA mode with valid auth — skip login and onboarding
+  if (isHaMode() && haAuthed) {
+    return (
+      <div>
+        <Dashboard key={refreshKey} showSettings={showSettings} setShowSettings={setShowSettings} />
+        {showSettings && (
+          <SettingsPanel onClose={() => { setShowSettings(false); setRefreshKey(k => k + 1); }} />
+        )}
+      </div>
+    );
+  }
+
+  // In HA mode without auth yet — show loading (waiting for postMessage)
+  if (isHaMode() && !getToken()) {
     return (
       <div className="auth-screen">
         <div className="app-logo-wrap" style={{ margin: '0 auto' }}>

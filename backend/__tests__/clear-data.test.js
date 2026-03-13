@@ -14,11 +14,7 @@ async function getAuthToken() {
 describe('/api/clear-data', () => {
   let token;
 
-  beforeAll(async () => {
-    token = await getAuthToken();
-  });
-
-  beforeEach(() => {
+  beforeEach(async () => {
     // Set up test data
     setConfig('sections', JSON.stringify([{ title: 'Test', links: [] }]));
     setConfig('admin_username', 'testuser');
@@ -27,6 +23,7 @@ describe('/api/clear-data', () => {
     db.prepare('DELETE FROM ssh_services').run();
     db.prepare("INSERT INTO ssh_services (name, host, port, username, password, protocol) VALUES (?, ?, ?, ?, ?, ?)")
       .run('TestSrv', '10.0.0.1', 22, 'root', 'enc', 'ssh');
+    token = await getAuthToken();
   });
 
   it('rejects unauthenticated requests', async () => {

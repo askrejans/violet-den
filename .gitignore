@@ -8,5 +8,6 @@ certs/
 *.db-wal
 *.db-shm
 .violetden_secret
+docker-compose.ha.network.yml
 .DS_Store
 .claude

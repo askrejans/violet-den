@@ -1,0 +1,41 @@
+# VioletDen — Docker Compose for Home Assistant integration
+#
+# Runs VioletDen as a single container alongside a dockerized HA instance.
+# If build hangs on "resolving provenance", run:
+#   BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose -f docker-compose.ha.yml build
+#
+# Usage:
+#   cp .env.example .env
+#   # Edit .env — set HA_URL and other options
+#   docker compose -f docker-compose.ha.yml up --build
+
+services:
+  violetden:
+    build:
+      context: .
+      dockerfile: Dockerfile.ha
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    volumes:
+      - violetden-data:/data
+    environment:
+      - HA_INTEGRATION=true
+      - HA_URL=${HA_URL:-http://homeassistant:8123}
+      - BACKEND_PORT=4000
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - DATA_DIR=/data
+    restart: unless-stopped
+    # Connect to HA's network if both are in Docker
+    # Uncomment and adjust if HA uses a custom network:
+    # networks:
+    #   - homeassistant_default
+
+volumes:
+  violetden-data:
+
+# Uncomment if connecting to HA's Docker network:
+# networks:
+#   homeassistant_default:
+#     external: true

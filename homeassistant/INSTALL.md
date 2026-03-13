@@ -1,0 +1,204 @@
+# VioletDen — Home Assistant Integration
+
+Embed VioletDen as a sidebar panel in Home Assistant. Works with all HA installation types (Container, Core, OS, Supervised).
+
+## Architecture
+
+```
+┌──────────────────────────┐      ┌───────────────────────────┐
+│   Home Assistant         │      │   VioletDen (single       │
+│   :8123                  │      │   container) :4000        │
+│                          │      │                           │
+│  ┌────────────────────┐  │      │  Express serves:          │
+│  │ panel_custom       │──┼──────┤  - Built React SPA        │
+│  │ (iframe → :4000)   │  │      │  - REST API (/api/*)      │
+│  └────────────────────┘  │      │  - WebSocket (/ws/*)      │
+│                          │      │  - HA auth validation      │
+│  HA authenticates user   │      │                           │
+│  Panel sends HA token ───┼──────▶ /api/ha-auth validates    │
+│  via postMessage         │      │  token against HA API     │
+└──────────────────────────┘      └───────────────────────────┘
+```
+
+## Prerequisites
+
+- Home Assistant (any installation type)
+- Docker (to run VioletDen alongside HA)
+- VioletDen and HA must be able to reach each other over the network
+
+---
+
+## Step 1: Run VioletDen Container
+
+### Option A: Docker Compose (recommended)
+
+```bash
+cd violet-den
+cp .env.example .env
+# Edit .env — set HA_URL, ADMIN_USERNAME, ADMIN_PASSWORD
+
+docker compose -f docker-compose.ha.yml up --build -d
+```
+
+### Option B: Install as systemd service
+
+```bash
+sudo ./install.sh --ha
+```
+
+### Option C: Docker Run
+
+```bash
+docker build -f Dockerfile.ha -t violetden-ha .
+
+docker run -d \
+  --name violetden \
+  -p 4000:4000 \
+  -v violetden-data:/data \
+  -e HA_INTEGRATION=true \
+  -e HA_URL=http://<ha-host-or-container>:8123 \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD=changeme \
+  violetden-ha
+```
+
+### Networking
+
+If both HA and VioletDen run in Docker, they need to share a network:
+
+```bash
+# Option 1: Use install.sh --ha (auto-detects HA's Docker network)
+sudo ./install.sh --ha
+
+# Option 2: Connect VioletDen to HA's network manually
+docker network connect homeassistant_default violetden
+
+# Option 3: Uncomment the network section in docker-compose.ha.yml
+```
+
+**Important:** `HA_URL` must be reachable from inside the VioletDen container. Use the HA container name (e.g., `http://homeassistant:8123`) if on the same Docker network, or the host IP if not.
+
+---
+
+## Step 2: Install HA Integration
+
+### Option A: HACS (recommended)
+
+1. Open **HACS** in Home Assistant
+2. Click the three-dot menu (top right) → **Custom repositories**
+3. Add repository: `https://github.com/askrejans/violet-den`
+4. Category: **Integration**
+5. Click **Add**, then find **VioletDen** in the list → **Download**
+6. **Restart Home Assistant**
+7. Go to **Settings → Devices & Services → Add Integration**
+8. Search for **VioletDen**
+9. Enter your VioletDen URL (e.g., `http://192.168.1.100:4000`)
+10. **VioletDen** appears in the sidebar — done!
+
+### Option B: Manual Integration Install
+
+Copy the integration to your HA config:
+
+```bash
+cp -r custom_components/violetden /config/custom_components/violetden
+```
+
+Then restart HA and configure via **Settings → Devices & Services → Add Integration → VioletDen**.
+
+### Option C: Manual Panel (no integration)
+
+For a minimal setup without the integration, use `panel_custom` directly:
+
+1. Copy the panel JS file:
+
+```bash
+mkdir -p /config/www
+cp homeassistant/violetden-panel.js /config/www/violetden-panel.js
+```
+
+2. Add to `configuration.yaml`:
+
+```yaml
+panel_custom:
+  - name: violetden-panel
+    sidebar_title: VioletDen
+    sidebar_icon: mdi:console-network
+    url_path: violetden
+    module_url: /local/violetden-panel.js
+    require_admin: true
+    config:
+      url: "http://<violetden-host>:4000"
+```
+
+3. Restart Home Assistant
+
+---
+
+## How Authentication Works
+
+1. User clicks "VioletDen" in the HA sidebar
+2. HA loads the panel, which creates an iframe to VioletDen
+3. The panel sends the user's HA access token via `postMessage`
+4. VioletDen's backend validates the token against `HA_URL/api/`
+5. If valid, VioletDen creates a session — no separate login needed
+6. On first use, VioletDen auto-completes setup (no onboarding wizard)
+
+Users can still access VioletDen directly at `:4000` and log in with standalone credentials.
+
+## Configuration Reference
+
+### Environment Variables (VioletDen container)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HA_INTEGRATION` | Enable HA integration mode | `true` (in Dockerfile.ha) |
+| `HA_URL` | HA API URL (from VioletDen container) | _(required)_ |
+| `BACKEND_PORT` | Port VioletDen listens on | `4000` |
+| `ADMIN_USERNAME` | Standalone login username | `admin` |
+| `ADMIN_PASSWORD` | Standalone login password | `changeme` |
+| `CORS_ORIGINS` | Allowed CORS origins (include HA URL) | _(permissive)_ |
+| `DATA_DIR` | SQLite database directory | `/data` |
+
+## Troubleshooting
+
+### Panel shows blank/loading
+
+- Verify VioletDen is running: `curl http://<violetden-host>:4000/api/setup-status`
+- Check browser console for CORS errors — set `CORS_ORIGINS` to include your HA URL
+- Ensure the URL in the integration config is reachable from the browser (not a Docker-internal address)
+
+### "Cannot reach Home Assistant" error
+
+- `HA_URL` is not reachable from inside the VioletDen container
+- If both are in Docker, ensure they share a network
+- Test from VioletDen container: `docker exec violetden wget -qO- http://homeassistant:8123/api/ -S`
+
+### SSH terminals not connecting
+
+- VioletDen needs network access to SSH targets
+- If running in Docker, use `--network host` or ensure target devices are reachable
+- WebSocket connections work through the iframe — no special config needed
+
+### Panel not appearing in sidebar
+
+- **HACS install:** Ensure VioletDen is configured in Settings → Devices & Services. Re-add if needed.
+- **Manual install:** Verify `custom_components/violetden/` exists with all files.
+- **Manual panel:** Check `www/violetden-panel.js` exists and `configuration.yaml` is correct.
+- Always restart HA after installation changes.
+
+## Updating
+
+### HACS
+
+1. Open HACS → Integrations → VioletDen → **Update**
+2. Restart Home Assistant
+
+### Manual
+
+```bash
+cd violet-den
+git pull
+cp -r custom_components/violetden /config/custom_components/violetden
+docker compose -f docker-compose.ha.yml up --build -d
+# Restart HA
+```

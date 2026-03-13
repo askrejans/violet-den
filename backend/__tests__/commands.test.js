@@ -15,13 +15,10 @@ describe('Saved Commands CRUD', () => {
   let token;
   let serviceId;
 
-  beforeAll(async () => {
-    token = await getAuthToken();
-  });
-
   beforeEach(async () => {
     db.prepare('DELETE FROM saved_commands').run();
     db.prepare('DELETE FROM ssh_services').run();
+    token = await getAuthToken();
 
     const res = await request(app)
       .post('/api/ssh-services')

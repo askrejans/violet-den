@@ -14,13 +14,10 @@ async function getAuthToken() {
 describe('SSH Services CRUD', () => {
   let token;
 
-  beforeAll(async () => {
-    token = await getAuthToken();
-  });
-
-  beforeEach(() => {
+  beforeEach(async () => {
     db.prepare('DELETE FROM saved_commands').run();
     db.prepare('DELETE FROM ssh_services').run();
+    token = await getAuthToken();
   });
 
   describe('POST /api/ssh-services', () => {

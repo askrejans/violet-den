@@ -16,6 +16,7 @@ A self-hosted smart home dashboard for organizing web services, devices, and net
 - **Onboarding wizard** — guided first-run setup (before login) with mandatory credential creation and preset auto-population from `.env`
 - **Configurable ports** — all exposed ports (HTTP, HTTPS, backend) configurable via `.env`
 - **Dockerized** — three-container stack (frontend, backend, nginx) with named volumes for persistence; internal services not exposed to host
+- **Home Assistant integration** — embed VioletDen as a sidebar panel in Home Assistant via `panel_custom`; single-container deployment with automatic HA auth passthrough, no separate login required
 
 ## Screenshots
 
@@ -50,6 +51,37 @@ docker compose up
 | HTTP redirect | `http://localhost` (redirects to HTTPS) |
 
 Frontend and backend are only accessible through the nginx reverse proxy. On first visit, the onboarding wizard will guide you through creating credentials and configuring dashboard sections.
+
+### Install as Linux Service
+
+Run VioletDen as a systemd service (Docker-based) on any Linux system with Docker installed:
+
+```bash
+# 1. Configure
+cp .env.example .env
+# Edit .env — set credentials, ports, etc.
+
+# 2. Install and start
+sudo ./install.sh
+
+# Or with Home Assistant integration (auto-detects HA network):
+sudo ./install.sh --ha
+```
+
+The installer builds the Docker images, creates a systemd service, and starts it. VioletDen will auto-start on boot. The `--ha` flag auto-detects your HA Docker network, connects VioletDen's backend to it, and sets the HA environment variables — then install the HACS integration to get the sidebar panel.
+
+```bash
+# Manage the service
+systemctl status violetden       # Check status
+systemctl restart violetden      # Restart
+journalctl -u violetden -f       # View logs
+
+# Uninstall
+sudo ./uninstall.sh              # Keep data volumes
+sudo ./uninstall.sh --purge      # Remove everything including data
+```
+
+Works on Debian/Ubuntu, AlmaLinux/Rocky/RHEL, Fedora, and any systemd-based distro with Docker.
 
 ## Development (without Docker)
 
@@ -200,6 +232,67 @@ VioletDen automatically generates a self-signed certificate on first Docker star
 3. Access the app only through the HTTPS/nginx proxy
 4. Keep Docker volumes backed up (especially `data` for the encryption key)
 5. Consider placing the app behind a VPN for additional network-level security
+
+## Home Assistant Integration
+
+VioletDen can be embedded as a sidebar panel in Home Assistant, providing the full dashboard and SSH terminal experience directly within HA's UI.
+
+### How It Works
+
+```
+┌──────────────────────────┐      ┌───────────────────────────┐
+│   Home Assistant         │      │   VioletDen (single       │
+│   :8123                  │      │   container) :4000        │
+│                          │      │                           │
+│  ┌────────────────────┐  │      │  Express serves:          │
+│  │ panel_custom       │──┼──────┤  - Built React SPA        │
+│  │ (iframe → :4000)   │  │      │  - REST API (/api/*)      │
+│  └────────────────────┘  │      │  - WebSocket (/ws/*)      │
+│                          │      │                           │
+│  HA authenticates user   │      │  HA token validated       │
+│  Panel sends HA token ───┼──────▶  against HA API           │
+│  via postMessage         │      │  → auto-login, no wizard  │
+└──────────────────────────┘      └───────────────────────────┘
+```
+
+- Works with all HA installation types (Container, Core, OS, Supervised)
+- Single-container deployment (built frontend + backend) via `Dockerfile.ha`
+- HA handles authentication — users see VioletDen without a separate login
+- SSH/Telnet terminals work through the iframe (WebSocket passthrough)
+- Standalone access at `:4000` still works with regular login
+
+### Quick Start (HACS)
+
+1. Run VioletDen: `docker compose -f docker-compose.ha.yml up --build -d`
+2. In HA, open **HACS → Custom repositories** → add `https://github.com/askrejans/violet-den` as **Integration**
+3. Download **VioletDen** from HACS, restart HA
+4. Go to **Settings → Devices & Services → Add Integration → VioletDen**
+5. Enter VioletDen URL (e.g., `http://192.168.1.100:4000`) — panel appears in sidebar
+
+### Quick Start (Manual)
+
+```bash
+# 1. Configure
+cp .env.example .env
+# Set HA_URL=http://<ha-host>:8123
+
+# 2. Build and run VioletDen
+docker compose -f docker-compose.ha.yml up --build -d
+
+# 3. Copy integration to HA config
+cp -r custom_components/violetden <ha-config>/custom_components/
+
+# 4. Restart HA → Settings → Devices & Services → Add Integration → VioletDen
+```
+
+For detailed instructions, networking setup, and troubleshooting, see [homeassistant/INSTALL.md](homeassistant/INSTALL.md).
+
+### HA-Specific Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HA_INTEGRATION` | Enable HA integration mode | `false` |
+| `HA_URL` | HA API URL (reachable from VioletDen container) | _(required in HA mode)_ |
 
 ## Running Tests
 

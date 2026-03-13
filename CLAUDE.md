@@ -4,6 +4,10 @@
 
 Self-hosted smart home dashboard (React + Express + nginx) for organizing web services, devices, and network infrastructure. Provides SSH/Telnet terminal access to network devices with encrypted credential storage. LAN-only — no Let's Encrypt or public internet features.
 
+Supports two deployment modes (both Docker-based, installable as systemd services via `install.sh`):
+- **Standalone** — Three-container Docker stack (nginx + frontend + backend) with self-signed TLS
+- **Home Assistant** — Single-container deployment embedded as an HA sidebar panel via `panel_custom`
+
 ## Architecture
 
 ```
@@ -18,10 +22,36 @@ Self-hosted smart home dashboard (React + Express + nginx) for organizing web se
                                               └──────────────┘
 ```
 
+### Standalone Mode (docker-compose.yml)
+
 Three Docker containers behind an nginx reverse proxy:
 - **nginx** — TLS termination (auto-generated self-signed cert), HTTP→HTTPS redirect, `envsubst` template for configurable backend port. Config is `nginx.conf.template` processed by `entrypoint.sh`.
 - **frontend** — React 19 SPA served by Vite 8 dev server. Internal only (`expose`, not `ports`).
 - **backend** — Express 5 API with SQLite (better-sqlite3), ssh2, ws. Internal only (`expose`, not `ports`).
+
+### Home Assistant Mode (docker-compose.ha.yml)
+
+```
+┌──────────────────────────┐      ┌───────────────────────────┐
+│   Home Assistant         │      │   VioletDen               │
+│   :8123                  │      │   (single container :4000)│
+│                          │      │                           │
+│  ┌────────────────────┐  │      │  Express serves:          │
+│  │ panel_custom       │──┼──────┤  - Built React SPA (dist/)│
+│  │ (iframe → :4000)   │  │      │  - REST API (/api/*)      │
+│  └────────────────────┘  │      │  - WebSocket (/ws/*)      │
+│                          │      │                           │
+│  HA token via postMessage┼──────▶ /api/ha-auth validates    │
+│                          │      │  against HA_URL/api/      │
+└──────────────────────────┘      └───────────────────────────┘
+```
+
+Single container (`Dockerfile.ha`) — multi-stage build: Vite builds frontend → Express serves static files + API. No nginx needed. Key env vars: `HA_INTEGRATION=true`, `HA_URL`.
+
+- **Panel component** (`homeassistant/violetden-panel.js`) — Custom element for HA's `panel_custom` system. Creates an iframe to VioletDen, passes HA auth token via `postMessage`.
+- **HACS integration** (`custom_components/violetden/`) — Full HA custom integration installable via HACS. Config flow asks for VioletDen URL, validates connectivity, then auto-registers the sidebar panel. The integration serves the panel JS as a static file and registers it via `panel_custom.async_register_panel`.
+- **Auth flow** — Panel sends HA access token → frontend calls `POST /api/ha-auth` → backend validates token against `HA_URL/api/` → creates VioletDen session → auto-login (no onboarding/login screen).
+- **SPA fallback** — Backend serves `dist/index.html` for non-API routes when `dist/` directory exists.
 
 ### Docker Volumes
 
@@ -45,9 +75,9 @@ All ports are configurable via `.env`: `HTTP_PORT`, `HTTPS_PORT`, `BACKEND_PORT`
 ├── frontend/
 │   └── src/
 │       ├── main.jsx         # React entry point
-│       ├── App.jsx          # Main app: setup-status check → Onboarding or AuthWrapper+Dashboard
+│       ├── App.jsx          # Main app: setup-status check → Onboarding or AuthWrapper+Dashboard; HA postMessage auth
 │       ├── App.css          # All styles (single CSS file, CSS custom properties)
-│       ├── api.js           # Fetch wrapper: auto Bearer token, auto 401 redirect (skips for validate-token)
+│       ├── api.js           # Fetch wrapper: auto Bearer token, auto 401 redirect, HA auth helpers
 │       ├── AuthWrapper.jsx  # Login screen, token validation on mount via /api/validate-token
 │       ├── Onboarding.jsx   # First-run wizard: mandatory creds + preset sections, calls /api/setup
 │       ├── SSHPanel.jsx     # SSH/Telnet: saved servers, free connect, xterm.js terminal, saved commands, error boundary
@@ -58,7 +88,23 @@ All ports are configurable via `.env`: `HTTP_PORT`, `HTTPS_PORT`, `BACKEND_PORT`
 │   ├── nginx.conf.template  # Reverse proxy config template (uses ${BACKEND_PORT} envsubst)
 │   ├── entrypoint.sh        # Auto-generates self-signed cert + envsubst → nginx.conf
 │   └── Dockerfile
-├── docker-compose.yml
+├── homeassistant/
+│   ├── violetden-panel.js  # HA panel_custom web component (iframe + postMessage auth)
+│   └── INSTALL.md          # HA integration setup guide
+├── custom_components/violetden/  # HA custom integration (HACS-compatible)
+│   ├── manifest.json       # HA integration manifest (domain, version, config_flow)
+│   ├── __init__.py         # Integration setup: registers static JS + sidebar panel
+│   ├── config_flow.py      # UI config flow: VioletDen URL input with connectivity check
+│   ├── const.py            # Constants (domain, defaults)
+│   ├── strings.json        # UI strings for config flow
+│   ├── translations/en.json
+│   └── frontend/violetden-panel.js  # Panel JS (copy of homeassistant/violetden-panel.js)
+├── hacs.json               # HACS custom repository metadata
+├── docker-compose.yml      # Standalone mode (3 containers)
+├── docker-compose.ha.yml   # HA mode (single container)
+├── Dockerfile.ha           # Multi-stage build: Vite → Express single container
+├── install.sh              # Systemd service installer (Docker-based, reads .env)
+├── uninstall.sh            # Service removal (--purge to delete volumes/images)
 ├── .env.example
 └── .gitignore
 ```
@@ -67,17 +113,20 @@ All ports are configurable via `.env`: `HTTP_PORT`, `HTTPS_PORT`, `BACKEND_PORT`
 
 ### App Bootstrap Flow
 
-1. `App` component calls `GET /api/setup-status` on mount
-2. If `setup_complete: false` → render `Onboarding` (no auth required)
-3. Onboarding collects username, password (with confirm), and sections → `POST /api/setup` (public, one-time endpoint)
-4. If `setup_complete: true` → render `AuthWrapper` → `Dashboard`
-5. `AuthWrapper` validates stored token via `GET /api/validate-token` on mount; clears stale tokens
+1. `App` component calls `GET /api/setup-status` on mount (response includes `ha_mode`)
+2. If `ha_mode: true`, sets HA mode in `api.js` and sends `violetden-ready` to parent
+3. Listens for `postMessage` with `{ type: 'ha-auth', token }` from HA panel → calls `/api/ha-auth` → auto-login
+4. If `setup_complete: false` (and not HA-authed) → render `Onboarding` (no auth required)
+5. Onboarding collects username, password (with confirm), and sections → `POST /api/setup` (public, one-time endpoint)
+6. If `setup_complete: true` → render `AuthWrapper` → `Dashboard`
+7. `AuthWrapper` validates stored token via `GET /api/validate-token` on mount; clears stale tokens
 
 ### Authentication
 
 - **Backend**: Bearer token sessions stored in an in-memory `Map`. Tokens are `crypto.randomBytes(32)`, 24h TTL. Rate limiting: 10 login attempts per IP per 15min.
-- **Frontend**: `api.js` exports `setToken()`/`getToken()`/`api()`. Token stored in `sessionStorage`. All authenticated calls go through `api()` which auto-injects the Bearer header and auto-reloads on 401 (except for `/api/validate-token` calls).
-- **Middleware**: `requireAuth` on all endpoints except `POST /api/login`, `GET /api/sections`, `GET /api/validate-token`, `GET /api/setup-status`, `POST /api/setup`.
+- **Frontend**: `api.js` exports `setToken()`/`getToken()`/`api()`/`haAuth()`/`setHaMode()`/`isHaMode()`. Token stored in `sessionStorage`. All authenticated calls go through `api()` which auto-injects the Bearer header and auto-reloads on 401 (except for `/api/validate-token` and `/api/ha-auth` calls). In HA mode, 401 triggers re-auth via `postMessage` instead of page reload.
+- **HA Auth**: `POST /api/ha-auth` accepts `{ ha_token }`, validates against `HA_URL/api/`, creates a VioletDen session. Auto-completes setup on first HA use (no onboarding wizard). Frontend listens for `postMessage` with `{ type: 'ha-auth', token }` from parent panel.
+- **Middleware**: `requireAuth` on all endpoints except `POST /api/login`, `GET /api/sections`, `GET /api/validate-token`, `GET /api/setup-status`, `POST /api/setup`, `POST /api/ha-auth`.
 
 ### Data Storage
 
@@ -108,7 +157,7 @@ All ports are configurable via `.env`: `HTTP_PORT`, `HTTPS_PORT`, `BACKEND_PORT`
 ### API Convention
 
 - All endpoints under `/api/`
-- Public: `POST /api/login`, `GET /api/sections`, `GET /api/validate-token`, `GET /api/setup-status`, `POST /api/setup`
+- Public: `POST /api/login`, `GET /api/sections`, `GET /api/validate-token`, `GET /api/setup-status`, `POST /api/setup`, `POST /api/ha-auth`
 - Protected: everything else (Bearer token required)
 - Request/response: JSON (`Content-Type: application/json`)
 - Error shape: `{ error: "message" }` or `{ success: false, error: "message" }`
@@ -130,12 +179,28 @@ Vite proxies `/api` and `/ws` (with WebSocket upgrade) to `http://localhost:4000
 ### Docker
 
 ```bash
-# Standard build
+# Standard build (standalone mode)
 docker compose up --build
+
+# Home Assistant mode (single container)
+docker compose -f docker-compose.ha.yml up --build
 
 # If build hangs on "resolving provenance"
 BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose build && docker compose up
 ```
+
+### Linux Service (systemd)
+
+`install.sh` and `uninstall.sh` wrap Docker Compose as a systemd service. No local Node.js install needed — everything runs in Docker.
+
+```bash
+sudo ./install.sh          # Standard 3-container stack
+sudo ./install.sh --ha     # Same stack + HA integration (auto-detects HA network)
+sudo ./uninstall.sh        # Remove service (keeps data)
+sudo ./uninstall.sh --purge # Remove everything
+```
+
+The installer always uses the full 3-container stack (`docker-compose.yml`). The `--ha` flag auto-detects the HA Docker container/network, generates `docker-compose.ha.network.yml` (override that attaches the backend to HA's network and injects `HA_INTEGRATION`/`HA_URL` env vars), sets `.env` values, and prints HACS install instructions. The service file uses `EnvironmentFile` to pass `.env` vars and runs `docker compose up/down` for start/stop.
 
 ## Common Tasks
 
