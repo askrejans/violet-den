@@ -293,7 +293,7 @@ WorkingDirectory=${SCRIPT_DIR}
 # Note: no EnvironmentFile needed — docker compose reads .env from WorkingDirectory
 
 ExecStartPre=/usr/bin/docker compose ${COMPOSE_ARGS} down --remove-orphans
-ExecStart=/usr/bin/docker compose ${COMPOSE_ARGS} up --remove-orphans
+ExecStart=/usr/bin/docker compose ${COMPOSE_ARGS} up --build --remove-orphans
 ExecStop=/usr/bin/docker compose ${COMPOSE_ARGS} down
 ExecReload=/usr/bin/docker compose ${COMPOSE_ARGS} restart
 
