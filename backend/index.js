@@ -408,10 +408,15 @@ wss.on('connection', (ws, req) => {
   const url    = new URL(req.url, `http://${req.headers.host}`);
   const token  = url.searchParams.get('token');
 
+  console.log('[WS] New connection attempt');
+
   if (!isValidToken(token)) {
+    console.log('[WS] Invalid token, closing');
     ws.close(4001, 'Unauthorized');
     return;
   }
+
+  console.log('[WS] Authenticated OK');
 
   let sshConn  = null;
   let sshReady = false;
@@ -419,6 +424,8 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+
+    console.log('[WS] Message type:', msg.type, msg.serviceId ? `serviceId=${msg.serviceId}` : msg.host || '');
 
     // ── Connect to SSH server ──
     if (msg.type === 'connect') {
@@ -445,7 +452,10 @@ wss.on('connection', (ws, req) => {
 
       sshConn = new Client();
 
+      console.log(`[WS] SSH connecting to ${connHost}:${connPort} as ${connUser}`);
+
       sshConn.on('ready', () => {
+        console.log('[WS] SSH ready, requesting shell');
         sshReady = true;
         sshConn.shell({ term: 'xterm-256color', cols: msg.cols || 80, rows: msg.rows || 24 }, (err, stream) => {
           if (err) {
@@ -474,6 +484,7 @@ wss.on('connection', (ws, req) => {
       });
 
       sshConn.on('error', (err) => {
+        console.log('[WS] SSH error:', err.message);
         ws.send(JSON.stringify({ type: 'error', data: `SSH error: ${err.message}` }));
         sshReady = false;
       });
