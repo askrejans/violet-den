@@ -2,8 +2,6 @@
 
 A self-hosted smart home dashboard for organizing web services, devices, and network infrastructure in one place. Includes an interactive SSH web terminal, saved commands, drag-and-drop reordering, and full persistent storage.
 
-**GitHub:** https://github.com/askrejans/violet-den
-
 ## Features
 
 - **View / Edit mode** — clean read-only dashboard by default; switch to edit mode for drag-and-drop reordering of sections and links, inline editing, and section management
