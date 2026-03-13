@@ -225,7 +225,8 @@ echo ""
 echo "Building VioletDen Docker images..."
 cd "$SCRIPT_DIR"
 
-if ! BUILDX_NO_DEFAULT_ATTESTATIONS=1 $COMPOSE_CMD build; then
+if ! BUILDX_NO_DEFAULT_ATTESTATIONS=1 COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 \
+  $COMPOSE_CMD build --build-arg BUILDKIT_SANDBOX_HOSTNAME=docker --network host; then
   echo "Error: Docker build failed."
   exit 1
 fi
