@@ -232,11 +232,16 @@ function XTerminal({ serviceId, freeConn, onDisconnect }) {
     }
 
     // Delayed fit: wait for container to have layout dimensions
+    // After fitting, shrink by 1 row so the last line isn't clipped by overflow:hidden
     const doFit = () => {
       try {
         const { clientWidth, clientHeight } = container;
         if (clientWidth > 0 && clientHeight > 0) {
           fit.fit();
+          const dims = fit.proposeDimensions();
+          if (dims && dims.rows > 2) {
+            term.resize(dims.cols, dims.rows - 1);
+          }
         }
       } catch {}
     };
@@ -317,6 +322,8 @@ function XTerminal({ serviceId, freeConn, onDisconnect }) {
       resizeTimeout = setTimeout(() => {
         try {
           fit.fit();
+          const dims = fit.proposeDimensions();
+          if (dims && dims.rows > 2) term.resize(dims.cols, dims.rows - 1);
           if (ws.readyState === 1) {
             ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
           }
