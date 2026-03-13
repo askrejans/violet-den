@@ -401,7 +401,7 @@ function _runTelnet(host, port, command, res) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ── WebSocket SSH Terminal ────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
-const wss = new WebSocketServer({ server, path: '/ws/terminal' });
+const wss = new WebSocketServer({ server, path: '/ws/terminal', perMessageDeflate: false });
 
 wss.on('connection', (ws, req) => {
   // Authenticate via query param: ?token=xxx
@@ -422,8 +422,9 @@ wss.on('connection', (ws, req) => {
   let sshReady = false;
 
   ws.on('message', (raw) => {
+    console.log('[WS] Raw message received, length:', raw.length, 'type:', typeof raw);
     let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
+    try { msg = JSON.parse(raw); } catch (e) { console.log('[WS] JSON parse error:', e.message); return; }
 
     console.log('[WS] Message type:', msg.type, msg.serviceId ? `serviceId=${msg.serviceId}` : msg.host || '');
 
