@@ -77,9 +77,105 @@ class VioletDenPanel extends HTMLElement {
     this._iframeReady = false;
     this._authSent = false;
 
+    // Detect load failures (unreachable host on external network)
+    this._loadTimer = setTimeout(() => {
+      if (!this._iframeReady) {
+        this._showOfflineMessage(url);
+      }
+    }, 10000);
+
     this._iframe.addEventListener('load', () => {
+      clearTimeout(this._loadTimer);
       this._iframeReady = true;
       this._trySendAuth();
+    });
+
+    this._iframe.addEventListener('error', () => {
+      clearTimeout(this._loadTimer);
+      this._showOfflineMessage(url);
+    });
+  }
+
+  _showOfflineMessage(url) {
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 100%;
+          background: #0d0a1a;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .offline-card {
+          text-align: center;
+          max-width: 420px;
+          padding: 48px 40px;
+          background: rgba(139, 92, 246, 0.08);
+          border: 1px solid rgba(139, 92, 246, 0.25);
+          border-radius: 16px;
+          backdrop-filter: blur(12px);
+        }
+        .offline-icon {
+          font-size: 56px;
+          margin-bottom: 16px;
+          opacity: 0.7;
+        }
+        .offline-title {
+          color: #c4b5fd;
+          font-size: 22px;
+          font-weight: 600;
+          margin: 0 0 12px;
+        }
+        .offline-text {
+          color: rgba(196, 181, 253, 0.7);
+          font-size: 15px;
+          line-height: 1.6;
+          margin: 0 0 24px;
+        }
+        .offline-url {
+          display: inline-block;
+          padding: 8px 16px;
+          background: rgba(139, 92, 246, 0.15);
+          border: 1px solid rgba(139, 92, 246, 0.3);
+          border-radius: 8px;
+          color: #a78bfa;
+          font-family: 'SF Mono', SFMono-Regular, Consolas, monospace;
+          font-size: 13px;
+          word-break: break-all;
+        }
+        .retry-btn {
+          display: inline-block;
+          margin-top: 20px;
+          padding: 10px 28px;
+          background: rgba(139, 92, 246, 0.2);
+          border: 1px solid rgba(139, 92, 246, 0.4);
+          border-radius: 8px;
+          color: #c4b5fd;
+          font-size: 14px;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        .retry-btn:hover {
+          background: rgba(139, 92, 246, 0.35);
+        }
+      </style>
+      <div class="offline-card">
+        <div class="offline-icon">🏠</div>
+        <h2 class="offline-title">VioletDen is not reachable</h2>
+        <p class="offline-text">
+          The dashboard is only accessible from your local network.<br>
+          Connect to your home Wi-Fi or VPN to access it.
+        </p>
+        <div class="offline-url">${this._escapeAttr(url)}</div>
+        <br>
+        <button class="retry-btn" id="retry">Retry</button>
+      </div>
+    `;
+
+    this.shadowRoot.getElementById('retry').addEventListener('click', () => {
+      this._render();
     });
   }
 
