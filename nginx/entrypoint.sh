@@ -27,7 +27,7 @@ if [ -n "$DOMAIN" ] && [ -n "$DNS_PROVIDER" ]; then
     if [ "$DNS_PROVIDER" = "dns_gd" ]; then
       DNSSLEEP="--dnssleep 600"
     fi
-    if acme.sh --issue --dns "$DNS_PROVIDER" -d "$DOMAIN" --keylength ec-256 $DNSSLEEP --force 2>&1; then
+    if acme.sh --issue --dns "$DNS_PROVIDER" -d "$DOMAIN" --keylength ec-256 --server letsencrypt $DNSSLEEP --force 2>&1; then
       echo "[nginx] Let's Encrypt cert issued successfully for $DOMAIN"
     else
       echo "[nginx] WARNING: Let's Encrypt cert request failed — falling back to self-signed"
