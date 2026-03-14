@@ -5,7 +5,7 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
+    "dev": "vite --host --allowedHosts all",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
