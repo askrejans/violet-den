@@ -235,6 +235,19 @@ app.post('/api/change-creds', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// ── Dashboard Settings (protected) ───────────────────────────────────────────
+app.get('/api/dashboard-settings', requireAuth, (req, res) => {
+  const showUrls = getConfig('show_urls', 'true');
+  res.json({ show_urls: showUrls === 'true' });
+});
+
+app.post('/api/dashboard-settings', requireAuth, (req, res) => {
+  if (req.body.show_urls !== undefined) {
+    setConfig('show_urls', req.body.show_urls ? 'true' : 'false');
+  }
+  res.json({ success: true });
+});
+
 // ── SSH Services CRUD (all protected) ────────────────────────────────────────
 app.get('/api/ssh-services', requireAuth, (req, res) => {
   const rows = db.prepare('SELECT * FROM ssh_services ORDER BY id').all();
@@ -399,15 +412,78 @@ function _runTelnet(host, port, command, res) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ── Shared SSH session helper ────────────────────────────────────────────────
+// ── Shared SSH/Telnet session helpers ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
-function resolveSSHCredentials({ serviceId, host, port, username, password }) {
-  if (serviceId) {
-    const svc = db.prepare('SELECT * FROM ssh_services WHERE id = ?').get(serviceId);
+function resolveConnectionInfo(msg) {
+  if (msg.serviceId) {
+    const svc = db.prepare('SELECT * FROM ssh_services WHERE id = ?').get(msg.serviceId);
     if (!svc) return { error: 'Server not found' };
-    return { host: svc.host, port: svc.port, username: svc.username, password: decrypt(svc.password) };
+    return { host: svc.host, port: svc.port, username: svc.username, password: decrypt(svc.password), protocol: svc.protocol || 'ssh' };
   }
-  return { host, port: Number(port) || 22, username: username || '', password: password || '' };
+  return { host: msg.host, port: Number(msg.port) || 22, username: msg.username || '', password: msg.password || '', protocol: msg.protocol || 'ssh' };
+}
+
+function createTelnetSession({ host, port }, callbacks) {
+  const socket = new net.Socket();
+  let connected = false;
+
+  socket.on('connect', () => {
+    connected = true;
+    callbacks.onConnected();
+  });
+
+  socket.on('data', (data) => {
+    // Strip telnet negotiation sequences (IAC commands)
+    let cleaned = '';
+    const buf = Buffer.from(data);
+    let i = 0;
+    while (i < buf.length) {
+      if (buf[i] === 0xff && i + 2 < buf.length) {
+        const cmd = buf[i + 1];
+        if (cmd >= 0xfb && cmd <= 0xfe) {
+          // WILL/WONT/DO/DONT — 3-byte sequences, respond with refusal
+          const opt = buf[i + 2];
+          if (cmd === 0xfb || cmd === 0xfd) {
+            // Reply WONT/DONT
+            const reply = Buffer.from([0xff, cmd === 0xfb ? 0xfe : 0xfc, opt]);
+            try { socket.write(reply); } catch {}
+          }
+          i += 3;
+          continue;
+        }
+        if (cmd === 0xfa) {
+          // Sub-negotiation — skip until IAC SE (0xff 0xf0)
+          i += 2;
+          while (i < buf.length - 1) {
+            if (buf[i] === 0xff && buf[i + 1] === 0xf0) { i += 2; break; }
+            i++;
+          }
+          continue;
+        }
+        // Other IAC commands (2 bytes)
+        i += 2;
+        continue;
+      }
+      cleaned += String.fromCharCode(buf[i]);
+      i++;
+    }
+    if (cleaned) callbacks.onData(cleaned);
+  });
+
+  socket.on('error', (err) => callbacks.onError(`Telnet error: ${err.message}`));
+  socket.on('close', () => callbacks.onDisconnected());
+  socket.on('timeout', () => {
+    callbacks.onError('Telnet connection timed out');
+    socket.destroy();
+  });
+
+  socket.setTimeout(300000); // 5 min idle timeout
+  socket.connect(Number(port) || 23, host);
+
+  return {
+    conn: { end: () => { try { socket.destroy(); } catch {} } },
+    getStream: () => connected ? socket : null,
+  };
 }
 
 function createSSHSession({ host, port, username, password, cols, rows }, callbacks) {
@@ -451,17 +527,23 @@ wss.on('connection', (ws, req) => {
     try { msg = JSON.parse(raw); } catch { return; }
 
     if (msg.type === 'connect') {
-      const creds = resolveSSHCredentials(msg);
-      if (creds.error) { ws.send(JSON.stringify({ type: 'error', data: creds.error })); return; }
+      const info = resolveConnectionInfo(msg);
+      if (info.error) { ws.send(JSON.stringify({ type: 'error', data: info.error })); return; }
 
       if (session) { try { session.conn.end(); } catch {} }
 
-      session = createSSHSession({ ...creds, cols: msg.cols, rows: msg.rows }, {
+      const callbacks = {
         onConnected: () => { ws.send(JSON.stringify({ type: 'connected' })); },
         onData:      (data) => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'data', data })); },
         onError:     (data) => { ws.send(JSON.stringify({ type: 'error', data })); },
         onDisconnected: () => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'disconnected' })); },
-      });
+      };
+
+      if (info.protocol === 'telnet') {
+        session = createTelnetSession({ host: info.host, port: info.port }, callbacks);
+      } else {
+        session = createSSHSession({ ...info, cols: msg.cols, rows: msg.rows }, callbacks);
+      }
     }
 
     if (msg.type === 'input' && session?.getStream()) {
@@ -501,18 +583,22 @@ const pollingCleanupInterval = setInterval(() => {
 if (pollingCleanupInterval.unref) pollingCleanupInterval.unref();
 
 app.post('/api/terminal/create', requireAuth, (req, res) => {
-  const creds = resolveSSHCredentials(req.body);
-  if (creds.error) return res.status(400).json({ error: creds.error });
+  const info = resolveConnectionInfo(req.body);
+  if (info.error) return res.status(400).json({ error: info.error });
 
   const sessionId = crypto.randomUUID();
   const outputBuffer = [];
 
-  const session = createSSHSession({ ...creds, cols: req.body.cols, rows: req.body.rows }, {
+  const callbacks = {
     onConnected:    () => { outputBuffer.push({ type: 'connected' }); },
     onData:         (data) => { outputBuffer.push({ type: 'data', data }); },
     onError:        (data) => { outputBuffer.push({ type: 'error', data }); },
     onDisconnected: () => { outputBuffer.push({ type: 'disconnected' }); },
-  });
+  };
+
+  const session = info.protocol === 'telnet'
+    ? createTelnetSession({ host: info.host, port: info.port }, callbacks)
+    : createSSHSession({ ...info, cols: req.body.cols, rows: req.body.rows }, callbacks);
 
   pollingSessions.set(sessionId, {
     ...session,

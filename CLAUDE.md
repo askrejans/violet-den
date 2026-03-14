@@ -2,10 +2,10 @@
 
 ## Project Overview
 
-Self-hosted smart home dashboard (React + Express + nginx) for organizing web services, devices, and network infrastructure. Provides SSH/Telnet terminal access to network devices with encrypted credential storage. LAN-only — no Let's Encrypt or public internet features.
+Self-hosted smart home dashboard (React + Express + nginx) for organizing web services, devices, and network infrastructure. Provides interactive SSH/Telnet terminal access to network devices with encrypted credential storage.
 
 Supports two deployment modes (both Docker-based, installable as systemd services via `install.sh`):
-- **Standalone** — Three-container Docker stack (nginx + frontend + backend) with self-signed TLS
+- **Standalone** — Three-container Docker stack (nginx + frontend + backend) with self-signed TLS or Let's Encrypt via DNS-01
 - **Home Assistant** — Single-container deployment embedded as an HA sidebar panel via `panel_custom`
 
 ## Architecture
@@ -81,7 +81,7 @@ All ports are configurable via `.env`: `HTTP_PORT`, `HTTPS_PORT`, `BACKEND_PORT`
 │       ├── AuthWrapper.jsx  # Login screen, token validation on mount via /api/validate-token
 │       ├── Onboarding.jsx   # First-run wizard: mandatory creds + preset sections, calls /api/setup
 │       ├── SSHPanel.jsx     # SSH/Telnet: saved servers, free connect, xterm.js terminal, saved commands, error boundary
-│       ├── SettingsPanel.jsx # Settings overlay: credentials (with confirm), certs (self-signed only), data mgmt
+│       ├── SettingsPanel.jsx # Settings overlay: display (show/hide URLs), credentials (with confirm), certs, data mgmt
 │       ├── IconPicker.jsx   # Material Icons picker (portal-based dropdown)
 │       └── index.css        # Base/reset styles
 ├── nginx/
@@ -131,7 +131,7 @@ All ports are configurable via `.env`: `HTTP_PORT`, `HTTPS_PORT`, `BACKEND_PORT`
 ### Data Storage
 
 - SQLite via `better-sqlite3` with WAL mode. Tables:
-  - `config` — key/value store (sections JSON, admin credentials)
+  - `config` — key/value store (sections JSON, admin credentials, dashboard settings like `show_urls`)
   - `ssh_services` — saved servers (passwords AES-256-GCM encrypted)
   - `saved_commands` — per-server saved commands
 - Encryption key auto-generated in `DATA_DIR/.violetden_secret` (mode 0600)
@@ -142,8 +142,9 @@ All ports are configurable via `.env`: `HTTP_PORT`, `HTTPS_PORT`, `BACKEND_PORT`
 - No state management library — plain React `useState`/`useEffect`
 - `App` checks setup status → shows Onboarding (before auth) or AuthWrapper+Dashboard
 - Dashboard has view/edit modes with section and link drag-and-drop reordering
-- SSHPanel manages terminal lifecycle: `activeTerminal` state with React `key` for auto-disconnect on server switch
+- SSHPanel manages terminal lifecycle: `activeTerminal` state with React `key` for auto-disconnect on server switch; both SSH and Telnet saved servers support interactive terminal sessions
 - XTerminal wrapped in `TerminalErrorBoundary` (class component) to prevent xterm crashes from killing the UI
+- Dashboard `showUrls` state loaded from `/api/dashboard-settings`; controls visibility of link URLs in view mode
 
 ### Styling
 
@@ -162,7 +163,7 @@ All ports are configurable via `.env`: `HTTP_PORT`, `HTTPS_PORT`, `BACKEND_PORT`
 - Request/response: JSON (`Content-Type: application/json`)
 - Error shape: `{ error: "message" }` or `{ success: false, error: "message" }`
 - Success shape: `{ success: true, ... }` or direct data
-- WebSocket: `/ws/terminal?token=<token>` for interactive SSH sessions
+- WebSocket: `/ws/terminal?token=<token>` for interactive SSH/Telnet sessions
 
 ## Development
 
@@ -259,4 +260,4 @@ Key testing rules:
 - CORS configurable via `CORS_ORIGINS` env var (comma-separated origins)
 - Onboarding uses a one-time public endpoint (`/api/setup`); blocked once credentials exist in DB
 - Token validation on mount catches stale sessions after backend restarts
-- Let's Encrypt removed — app is LAN-only, uses auto-generated self-signed certs
+- SSL: self-signed certs auto-generated on first run; optional Let's Encrypt via DNS-01 (acme.sh) for trusted certs behind firewall

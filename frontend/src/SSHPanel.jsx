@@ -451,7 +451,15 @@ export default function SSHPanel() {
   const connectFree = () => {
     if (!freeHost) return;
     setActiveTerminal({
-      freeConn: { host: freeHost, port: freePort, username: freeUser, password: freePass }
+      freeConn: { host: freeHost, port: freePort, username: freeUser, password: freePass, protocol: 'ssh' }
+    });
+  };
+
+  /* ── Connect to terminal (free Telnet) ── */
+  const connectTelnet = () => {
+    if (!telHost) return;
+    setActiveTerminal({
+      freeConn: { host: telHost, port: telPort, protocol: 'telnet' }
     });
   };
 
@@ -514,6 +522,11 @@ export default function SSHPanel() {
   const openEdit = (svc) => { setEditTarget(svc); setShowForm(true); };
   const openAdd  = ()    => { setEditTarget(null); setShowForm(true); };
 
+  const [showUrls, setShowUrls] = useState(true);
+  useEffect(() => {
+    api('/api/dashboard-settings').then(r => r.ok ? r.json() : null).then(d => { if (d) setShowUrls(d.show_urls !== false); }).catch(() => {});
+  }, []);
+
   const selected = services.find(s => s.id === selectedId);
 
   return (
@@ -562,7 +575,7 @@ export default function SSHPanel() {
                   </span>
                   <div className="ssh-server-info">
                     <span className="ssh-server-name">{svc.name}</span>
-                    <span className="ssh-server-addr">{svc.username ? `${svc.username}@` : ''}{svc.host}:{svc.port}</span>
+                    {showUrls && <span className="ssh-server-addr">{svc.username ? `${svc.username}@` : ''}{svc.host}:{svc.port}</span>}
                   </div>
                   <span className="ssh-proto-badge">{svc.protocol}</span>
                   <button className="btn-icon btn-edit"   onClick={e => { e.stopPropagation(); openEdit(svc); }} title="Edit">✎</button>
@@ -584,12 +597,10 @@ export default function SSHPanel() {
                   {selected.name}
                 </span>
 
-                {selected.protocol === 'ssh' && (
-                  <button className="ssh-connect-btn" onClick={connectSaved}>
-                    <span className="material-icons" style={{ fontSize: '1rem', marginRight: '5px' }}>laptop</span>
-                    Open Terminal
-                  </button>
-                )}
+                <button className="ssh-connect-btn" onClick={connectSaved}>
+                  <span className="material-icons" style={{ fontSize: '1rem', marginRight: '5px' }}>laptop</span>
+                  Open Terminal
+                </button>
 
                 <div className="ssh-exec-row">
                   <input
@@ -635,16 +646,20 @@ export default function SSHPanel() {
               <input className="ssh-field" value={telPort} onChange={e => setTelPort(e.target.value)} placeholder="Port" type="number" style={{width:'80px'}} />
             </div>
             <div className="ssh-controls">
+              <button className="ssh-connect-btn" onClick={connectTelnet} disabled={!telHost}>
+                <span className="material-icons" style={{ fontSize: '1rem', marginRight: '5px' }}>laptop</span>
+                Open Terminal
+              </button>
               <input
                 className="ssh-input"
                 type="text"
-                placeholder="Initial command / string to send (optional)…"
+                placeholder="Quick command (send & close)…"
                 value={telCmd}
                 onChange={e => setTelCmd(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && !running && runTelnet()}
               />
               <button className="ssh-run-btn" onClick={runTelnet} disabled={running || !telHost}>
-                {running ? '…' : 'Connect'}
+                {running ? '…' : 'Run'}
               </button>
             </div>
           </>

@@ -19,20 +19,20 @@ function IconDisplay({ value }) {
    VIEW MODE — Clean, read-only dashboard
    ══════════════════════════════════════════════════════════════ */
 
-function ViewLinkRow({ link }) {
+function ViewLinkRow({ link, showUrls }) {
   return (
     <a href={link.url} target="_blank" rel="noopener noreferrer" className="view-link-row">
       <span className="view-link-icon">
         {link.icon ? <IconDisplay value={link.icon} /> : <span className="material-icons mi-sm">link</span>}
       </span>
       <span className="view-link-name">{link.name}</span>
-      <span className="view-link-url">{link.url}</span>
+      {showUrls && <span className="view-link-url">{link.url}</span>}
       <span className="material-icons view-link-arrow">open_in_new</span>
     </a>
   );
 }
 
-function ViewSectionCard({ section }) {
+function ViewSectionCard({ section, showUrls }) {
   return (
     <div className="view-section">
       <div className="view-section-header">
@@ -42,7 +42,7 @@ function ViewSectionCard({ section }) {
       </div>
       <div className="view-link-list">
         {section.links.map((link, idx) => (
-          <ViewLinkRow key={idx} link={link} />
+          <ViewLinkRow key={idx} link={link} showUrls={showUrls} />
         ))}
       </div>
     </div>
@@ -269,6 +269,7 @@ function Dashboard({ showSettings, setShowSettings }) {
   const [addingSection,   setAddingSection]   = useState(false);
   const [dragSectionIdx,  setDragSectionIdx]  = useState(null);
   const [dragOverSection, setDragOverSection] = useState(null);
+  const [showUrls,        setShowUrls]        = useState(true);
 
   useEffect(() => {
     api('/api/sections')
@@ -276,6 +277,10 @@ function Dashboard({ showSettings, setShowSettings }) {
       .then(data => { if (Array.isArray(data)) setSections(data); })
       .catch(() => {})
       .finally(() => setLoading(false));
+    api('/api/dashboard-settings')
+      .then(r => r.json())
+      .then(data => { setShowUrls(data.show_urls); })
+      .catch(() => {});
   }, []);
 
   if (loading) {
@@ -392,7 +397,7 @@ function Dashboard({ showSettings, setShowSettings }) {
             ) : (
               <div className="view-grid">
                 {sections.map((section, idx) => (
-                  <ViewSectionCard key={idx} section={section} />
+                  <ViewSectionCard key={idx} section={section} showUrls={showUrls} />
                 ))}
               </div>
             )}

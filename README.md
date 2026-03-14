@@ -5,13 +5,13 @@ A self-hosted smart home dashboard for organizing web services, devices, and net
 ## Features
 
 - **View / Edit mode** — clean read-only dashboard by default; switch to edit mode for drag-and-drop reordering of sections and links, inline editing, and section management
-- **Interactive SSH terminal** — full xterm.js web terminal with WebSocket SSH bridge; connect to saved servers or any host with colored terminal output, automatic resizing, and error recovery
+- **Interactive SSH/Telnet terminal** — full xterm.js web terminal with WebSocket bridge for both SSH and Telnet; connect to saved servers or any host with colored terminal output, automatic resizing, and error recovery
 - **Saved commands** — store frequently used commands per SSH server; run them with one click directly in the terminal
 - **Dashboard sections** — organize links by category with Material Icons support and drag-and-drop reordering
 - **SSH/Telnet support** — manage saved servers or connect to any host freely; SSH and Telnet protocol support
 - **Persistent storage** — SQLite database stores sections, credentials, server configs, and saved commands
 - **Security** — bearer-token sessions with validation on mount, AES-256-GCM encrypted SSH passwords at rest, login rate limiting
-- **Settings panel** — change credentials (with password confirmation), manage self-signed SSL certificates, clear stored data / factory reset
+- **Settings panel** — display settings (show/hide link URLs), change credentials (with password confirmation), manage SSL certificates, clear stored data / factory reset
 - **Auto-generated HTTPS** — self-signed certificate on first run, or automated Let's Encrypt with DNS-01 validation (just set `DOMAIN` + `DNS_PROVIDER` in `.env`); nginx handles TLS termination
 - **Onboarding wizard** — guided first-run setup (before login) with mandatory credential creation and preset auto-population from `.env`
 - **Configurable ports** — all exposed ports (HTTP, HTTPS, backend) configurable via `.env`
@@ -197,7 +197,9 @@ See [`.env.example`](.env.example) for all options.
 | `DELETE` | `/api/commands/:id` | Yes | Delete a saved command |
 | `POST` | `/api/ssh` | Yes | Run command on saved server (exec mode) |
 | `POST` | `/api/ssh-free` | Yes | Run command on any host (SSH) |
-| `POST` | `/api/telnet` | Yes | Connect to any host (Telnet) |
+| `POST` | `/api/telnet` | Yes | Send command to any host (Telnet, exec mode) |
+| `GET` | `/api/dashboard-settings` | Yes | Get display settings (show_urls) |
+| `POST` | `/api/dashboard-settings` | Yes | Update display settings |
 | `GET` | `/api/cert-status` | Yes | Check if SSL cert exists |
 | `POST` | `/api/generate-cert` | Yes | Generate self-signed SSL cert |
 | `DELETE` | `/api/cert` | Yes | Remove installed certificate |
@@ -210,7 +212,7 @@ Connect to `/ws/terminal?token=<bearer_token>`. Messages are JSON:
 
 | Direction | Type | Fields | Description |
 |-----------|------|--------|-------------|
-| Client→Server | `connect` | `serviceId` or `host,port,username,password` + `cols,rows` | Start SSH session |
+| Client→Server | `connect` | `serviceId` or `host,port,username,password,protocol` + `cols,rows` | Start SSH/Telnet session |
 | Client→Server | `input` | `data` | Send keyboard input |
 | Client→Server | `resize` | `cols,rows` | Resize terminal |
 | Client→Server | `disconnect` | — | End session |
@@ -219,15 +221,17 @@ Connect to `/ws/terminal?token=<bearer_token>`. Messages are JSON:
 | Server→Client | `error` | `data` | Error message |
 | Server→Client | `disconnected` | — | Session ended |
 
-## SSH Web Terminal
+## SSH/Telnet Web Terminal
 
-The interactive terminal uses xterm.js on the frontend connected via WebSocket to the backend's SSH bridge. Features:
+The interactive terminal uses xterm.js on the frontend connected via WebSocket to the backend. Features:
 
-- Full PTY shell with `xterm-256color` support
+- Full PTY shell with `xterm-256color` support (SSH) and raw socket terminal (Telnet)
+- Both SSH and Telnet saved servers support interactive terminal sessions
 - Automatic terminal resizing via FitAddon and ResizeObserver
 - Violet-themed terminal colors matching the dashboard
 - Per-server saved commands with one-click execution
 - Connect to saved servers or enter credentials manually
+- Telnet negotiation handling (IAC sequences stripped automatically)
 - Error boundary prevents terminal crashes from affecting the dashboard
 - Automatic disconnect on server switch
 
@@ -384,6 +388,7 @@ Backend tests (`backend/__tests__/`) cover:
 - **Saved Commands CRUD** — create/read/update/delete, cascade delete with service
 - **Credentials** — change-creds validation and persistence
 - **Clear Data** — clearing sections, SSH services, credentials, and full factory reset
+- **Dashboard Settings** — display settings read/write, auth enforcement
 
 ### Frontend
 
@@ -398,7 +403,7 @@ Frontend tests (`frontend/src/__tests__/`) cover:
 - **App** — setup status routing (loading → onboarding vs login), fetch error handling
 - **Onboarding** — credential validation (empty, short password, mismatch), save button enable/disable, server errors, successful setup
 - **AuthWrapper** — login form rendering, token validation on mount (valid/invalid/unreachable), login success/failure, loading state
-- **SettingsPanel** — tab rendering, tab switching, close callback
+- **SettingsPanel** — tab rendering (Display, Credentials, Certificate, Data), Display tab with show/hide URLs toggle, close callback
 - **IconPicker** — `isMaterialIcon` helper, icon list integrity, dropdown open/search/filter/select/clear
 
 All new features and significant changes should include or update tests. Pull requests must pass all tests.

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from './api';
 
 export default function SettingsPanel({ onClose }) {
-  const [tab, setTab] = useState('creds'); // 'creds' | 'cert' | 'data'
+  const [tab, setTab] = useState('display'); // 'display' | 'creds' | 'cert' | 'data'
 
   return (
     <div className="settings-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -15,27 +15,86 @@ export default function SettingsPanel({ onClose }) {
 
         <div className="settings-tabs">
           {[
+            { key: 'display', icon: 'visibility', label: 'Display' },
             { key: 'creds', icon: 'manage_accounts', label: 'Credentials' },
             { key: 'cert',  icon: 'shield',          label: 'Certificate' },
-            { key: 'data',  icon: 'database',         label: 'Data' },
+            { key: 'data',  icon: 'storage',          label: 'Data' },
           ].map(t => (
             <button
               key={t.key}
               className={`settings-tab${tab === t.key ? ' settings-tab-active' : ''}`}
               onClick={() => setTab(t.key)}
             >
-              <span className="material-icons" style={{ fontSize: '1rem' }}>{t.icon}</span>
+              <span className="material-icons" style={{ fontSize: '0.85rem' }}>{t.icon}</span>
               {t.label}
             </button>
           ))}
         </div>
 
         <div className="settings-body">
+          {tab === 'display' && <DisplayTab />}
           {tab === 'creds' && <CredsTab />}
           {tab === 'cert'  && <CertTab />}
           {tab === 'data'  && <DataTab />}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Display Tab ────────────────────────────────── */
+function DisplayTab() {
+  const [showUrls, setShowUrls] = useState(true);
+  const [loading, setLoading]   = useState(true);
+  const [msg, setMsg]           = useState('');
+  const [ok, setOk]             = useState(null);
+
+  useEffect(() => {
+    api('/api/dashboard-settings')
+      .then(r => r.json())
+      .then(data => { setShowUrls(data.show_urls); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = async (val) => {
+    setShowUrls(val);
+    setMsg('');
+    try {
+      const res = await api('/api/dashboard-settings', {
+        method: 'POST',
+        body: JSON.stringify({ show_urls: val }),
+      });
+      const data = await res.json();
+      setOk(data.success);
+      setMsg(data.success ? 'Setting saved!' : (data.error || 'Failed'));
+    } catch (err) {
+      setOk(false); setMsg(`Error: ${err.message}`);
+    }
+  };
+
+  if (loading) return <div className="settings-section"><p className="settings-hint">Loading…</p></div>;
+
+  return (
+    <div className="settings-section">
+      <h3>Dashboard Display</h3>
+      <p className="settings-hint">Customize how the dashboard looks.</p>
+
+      <div className="data-action-row">
+        <div className="data-action-info">
+          <span className="material-icons" style={{ fontSize: '1.1rem', color: 'var(--v400)' }}>link</span>
+          <div>
+            <strong>Show link addresses</strong>
+            <span>Display URLs below link names on the dashboard</span>
+          </div>
+        </div>
+        <label className="settings-toggle">
+          <input type="checkbox" checked={showUrls} onChange={e => toggle(e.target.checked)} />
+          <span className="settings-toggle-slider"></span>
+        </label>
+      </div>
+
+      {msg && <div className={`settings-msg ${ok ? 'settings-msg-ok' : 'settings-msg-err'}`}>{msg}</div>}
     </div>
   );
 }
