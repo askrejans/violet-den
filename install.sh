@@ -333,13 +333,20 @@ if [ "$HA_FLAG" = true ]; then
   elif [ -n "$NETWORK_OVERRIDE" ]; then
     echo "  HA:      Reaching HA via Docker gateway (host network)"
   fi
+  # Check if a domain with Let's Encrypt is configured
+  DOMAIN_CONFIGURED=$(grep -E '^DOMAIN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]' || true)
   echo ""
   echo "  Add VioletDen to Home Assistant sidebar:"
   echo "    1. HACS → Custom repositories → add repo as Integration"
   echo "    2. Download VioletDen → restart HA"
   echo "    3. Settings → Devices & Services → Add Integration → VioletDen"
-  echo "    4. Enter URL: http://${HOST_IP}:${HTTP_PORT_DISPLAY}"
-  echo "       (Use HTTP for HA — self-signed HTTPS breaks HA mobile app)"
+  if [ -n "$DOMAIN_CONFIGURED" ]; then
+    echo "    4. Enter URL: https://${DOMAIN_CONFIGURED}:${HTTPS_PORT}"
+    echo "       (Let's Encrypt cert — works with Nabu Casa and HA mobile app)"
+  else
+    echo "    4. Enter URL: http://${HOST_IP}:${HTTP_PORT_DISPLAY}"
+    echo "       (Use HTTP for HA — self-signed HTTPS breaks HA mobile app)"
+  fi
 fi
 echo ""
 echo "  Config:  ${ENV_FILE}"
