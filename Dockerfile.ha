@@ -16,7 +16,7 @@
 FROM node:22-alpine AS frontend-build
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm install
+RUN npm ci
 COPY frontend/ .
 RUN npm run build
 
@@ -27,7 +27,7 @@ WORKDIR /app
 
 # Install backend dependencies
 COPY backend/package.json backend/package-lock.json* ./
-RUN npm install --omit=dev && \
+RUN npm ci --omit=dev && \
     apk del python3 make g++
 
 # Copy backend source

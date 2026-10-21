@@ -26,20 +26,36 @@ class VioletDenPanel extends HTMLElement {
     this._iframe = null;
     this._iframeReady = false;
     this._authSent = false;
+    this._loadTimer = null;
     this._boundMessageHandler = this._onMessage.bind(this);
+    this._boundResizeHandler = this._updateHeight.bind(this);
   }
 
   connectedCallback() {
     window.addEventListener('message', this._boundMessageHandler);
+    window.addEventListener('resize', this._boundResizeHandler);
+    window.visualViewport?.addEventListener('resize', this._boundResizeHandler);
+    window.visualViewport?.addEventListener('scroll', this._boundResizeHandler);
+    this._resizeObserver = new ResizeObserver(this._boundResizeHandler);
+    if (this.parentElement) this._resizeObserver.observe(this.parentElement);
+    this._render();
+    this._updateHeight();
   }
 
   disconnectedCallback() {
     window.removeEventListener('message', this._boundMessageHandler);
+    window.removeEventListener('resize', this._boundResizeHandler);
+    window.visualViewport?.removeEventListener('resize', this._boundResizeHandler);
+    window.visualViewport?.removeEventListener('scroll', this._boundResizeHandler);
+    this._resizeObserver.disconnect();
+    this._clearLoadTimer();
+    this._iframeReady = false;
+    this._authSent = false;
   }
 
   set panel(panel) {
     this._panel = panel;
-    this._render();
+    if (this.isConnected) this._render();
   }
 
   set hass(hass) {
@@ -47,19 +63,53 @@ class VioletDenPanel extends HTMLElement {
     this._trySendAuth();
   }
 
+  _updateHeight() {
+    const viewport = window.visualViewport;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportBottom = viewportTop + (viewport?.height ?? window.innerHeight);
+    const top = this.getBoundingClientRect().top;
+    const paddingBottom = this.parentElement
+      ? parseFloat(getComputedStyle(this.parentElement).paddingBottom) || 0
+      : 0;
+    this.style.height = `${Math.max(0, viewportBottom - top - paddingBottom)}px`;
+  }
+
+  _clearLoadTimer() {
+    clearTimeout(this._loadTimer);
+    this._loadTimer = null;
+  }
+
+  _startLoadTimer(url) {
+    const iframe = this._iframe;
+    this._loadTimer = setTimeout(() => {
+      if (this.isConnected && this._iframe === iframe && !this._iframeReady) {
+        this._showOfflineMessage(url);
+      }
+    }, 10000);
+  }
+
   _render() {
     if (!this._panel) return;
 
     const url = (this._panel.config && this._panel.config.url) || 'http://localhost:4000';
+    if (this._iframe && this._iframe.src === new URL(url, document.baseURI).href) {
+      if (!this._iframeReady && !this._loadTimer) this._startLoadTimer(url);
+      return;
+    }
+    this._clearLoadTimer();
 
     this.shadowRoot.innerHTML = `
       <style>
         :host {
           display: block;
           width: 100%;
-          height: 100%;
+          height: 100dvh;
+          min-height: 0;
+          box-sizing: border-box;
+          overflow: hidden;
         }
         iframe {
+          display: block;
           width: 100%;
           height: 100%;
           border: 0;
@@ -76,27 +126,29 @@ class VioletDenPanel extends HTMLElement {
     this._iframe = this.shadowRoot.querySelector('iframe');
     this._iframeReady = false;
     this._authSent = false;
+    const iframe = this._iframe;
 
     // Detect load failures (unreachable host on external network)
-    this._loadTimer = setTimeout(() => {
-      if (!this._iframeReady) {
-        this._showOfflineMessage(url);
-      }
-    }, 10000);
+    this._startLoadTimer(url);
 
-    this._iframe.addEventListener('load', () => {
-      clearTimeout(this._loadTimer);
+    iframe.addEventListener('load', () => {
+      if (!this.isConnected || this._iframe !== iframe) return;
+      this._clearLoadTimer();
       this._iframeReady = true;
       this._trySendAuth();
     });
 
-    this._iframe.addEventListener('error', () => {
-      clearTimeout(this._loadTimer);
+    iframe.addEventListener('error', () => {
+      if (!this.isConnected || this._iframe !== iframe) return;
       this._showOfflineMessage(url);
     });
   }
 
   _showOfflineMessage(url) {
+    this._clearLoadTimer();
+    this._iframe = null;
+    this._iframeReady = false;
+    this._authSent = false;
     this.shadowRoot.innerHTML = `
       <style>
         :host {
@@ -104,7 +156,9 @@ class VioletDenPanel extends HTMLElement {
           align-items: center;
           justify-content: center;
           width: 100%;
-          height: 100%;
+          height: 100dvh;
+          box-sizing: border-box;
+          overflow: auto;
           background: #0d0a1a;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
@@ -186,7 +240,7 @@ class VioletDenPanel extends HTMLElement {
    * after processing the auth handshake.
    */
   _onMessage(event) {
-    if (!this._iframe) return;
+    if (!this._iframe || event.source !== this._iframe.contentWindow) return;
 
     // Only accept messages from the iframe origin
     try {
@@ -200,6 +254,7 @@ class VioletDenPanel extends HTMLElement {
     if (!data || typeof data !== 'object') return;
 
     if (data.type === 'violetden-ready') {
+      this._clearLoadTimer();
       this._iframeReady = true;
       this._authSent = false;
       this._trySendAuth();

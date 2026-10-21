@@ -91,16 +91,18 @@ Update to the latest release and rebuild:
 cd /path/to/violet-den
 git fetch --tags
 git checkout $(git describe --tags --abbrev=0 origin/main)
-sudo systemctl restart violetden
+sudo ./install.sh
+# Home Assistant installations: sudo ./install.sh --ha
 ```
 
-The service automatically rebuilds all Docker images on restart — no manual build step needed.
+The installer rebuilds the images before restarting the service. Normal service starts and host reboots use the built images, so they do not depend on package registries or a build-time Internet connection.
 
 To follow a specific release instead of latest:
 
 ```bash
 git checkout v1.2.0
-sudo systemctl restart violetden
+sudo ./install.sh
+# Home Assistant installations: sudo ./install.sh --ha
 ```
 
 ## Development (without Docker)
