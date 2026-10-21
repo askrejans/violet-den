@@ -168,3 +168,28 @@ it('ships identical manual-panel and HACS integration frontend sources', () => {
   expect(fs.readFileSync(path.join(root, 'homeassistant/violetden-panel.js'), 'utf8'))
     .toBe(fs.readFileSync(path.join(root, 'custom_components/violetden/frontend/violetden-panel.js'), 'utf8'));
 });
+
+it('forwards the current HA palette and changes it without reloading the iframe or repeating auth', () => {
+  const panel = mountPanel();
+  const variables = {
+    '--primary-background-color': '#121212', '--card-background-color': '#202020',
+    '--secondary-background-color': '#303030', '--primary-color': '#00aaff',
+    '--primary-text-color': '#eeeeee', '--secondary-text-color': '#aaaaaa',
+    '--divider-color': '#444444',
+  };
+  for (const [key, value] of Object.entries(variables)) panel.style.setProperty(key, value);
+  const { iframe, frameWindow } = authenticate(panel);
+  iframe.dispatchEvent(new Event('load'));
+  expect(frameWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+    type: 'ha-theme', palette: expect.objectContaining({ primary: '#00aaff', surface: '#202020' }),
+  }), new URL(dashboardUrl).origin);
+  panel.style.setProperty('--primary-color', '#ff8800');
+  panel.hass = { ...panel._hass, themes: { darkMode: true } };
+  expect(frameWindow.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+    type: 'ha-theme', palette: expect.objectContaining({ primary: '#ff8800', dark: true }),
+  }), new URL(dashboardUrl).origin);
+  panel.hass = { ...panel._hass };
+  expect(frameWindow.postMessage.mock.calls.filter(([data]) => data.type === 'ha-theme')).toHaveLength(2);
+  expect(frameWindow.postMessage.mock.calls.filter(([data]) => data.type === 'ha-auth')).toHaveLength(1);
+  expect(panel.shadowRoot.querySelector('iframe')).toBe(iframe);
+});

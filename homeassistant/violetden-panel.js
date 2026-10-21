@@ -29,6 +29,7 @@ class VioletDenPanel extends HTMLElement {
     this._loadTimer = null;
     this._boundMessageHandler = this._onMessage.bind(this);
     this._boundResizeHandler = this._updateHeight.bind(this);
+    this._boundThemeHandler = this._sendTheme.bind(this);
   }
 
   connectedCallback() {
@@ -38,6 +39,10 @@ class VioletDenPanel extends HTMLElement {
     window.visualViewport?.addEventListener('scroll', this._boundResizeHandler);
     this._resizeObserver = new ResizeObserver(this._boundResizeHandler);
     if (this.parentElement) this._resizeObserver.observe(this.parentElement);
+    this._themeObserver = new MutationObserver(this._boundThemeHandler);
+    this._themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
+    const ha = document.querySelector('home-assistant');
+    if (ha) this._themeObserver.observe(ha, { attributes: true, attributeFilter: ['style', 'class'] });
     this._render();
     this._updateHeight();
   }
@@ -48,9 +53,11 @@ class VioletDenPanel extends HTMLElement {
     window.visualViewport?.removeEventListener('resize', this._boundResizeHandler);
     window.visualViewport?.removeEventListener('scroll', this._boundResizeHandler);
     this._resizeObserver.disconnect();
+    this._themeObserver.disconnect();
     this._clearLoadTimer();
     this._iframeReady = false;
     this._authSent = false;
+    this._lastTheme = null;
   }
 
   set panel(panel) {
@@ -126,6 +133,7 @@ class VioletDenPanel extends HTMLElement {
     this._iframe = this.shadowRoot.querySelector('iframe');
     this._iframeReady = false;
     this._authSent = false;
+    this._lastTheme = null;
     const iframe = this._iframe;
 
     // Detect load failures (unreachable host on external network)
@@ -257,6 +265,7 @@ class VioletDenPanel extends HTMLElement {
       this._clearLoadTimer();
       this._iframeReady = true;
       this._authSent = false;
+      this._lastTheme = null;
       this._trySendAuth();
     }
   }
@@ -266,6 +275,7 @@ class VioletDenPanel extends HTMLElement {
    * The iframe backend validates the HA token against the HA API.
    */
   _trySendAuth() {
+    this._sendTheme();
     if (!this._hass || !this._iframe || !this._iframeReady || this._authSent) return;
 
     const token = this._hass.auth && this._hass.auth.data
@@ -287,6 +297,30 @@ class VioletDenPanel extends HTMLElement {
     }, iframeUrl.origin);
 
     this._authSent = true;
+  }
+
+  _sendTheme() {
+    if (!this._iframe || !this._iframeReady) return;
+    const style = getComputedStyle(this);
+    const properties = {
+      background: '--primary-background-color',
+      surface: '--card-background-color',
+      secondary: '--secondary-background-color',
+      primary: '--primary-color',
+      text: '--primary-text-color',
+      muted: '--secondary-text-color',
+      divider: '--divider-color',
+    };
+    const palette = {};
+    for (const [key, property] of Object.entries(properties)) {
+      palette[key] = style.getPropertyValue(property).trim();
+      if (!palette[key]) return;
+    }
+    palette.dark = this._hass?.themes?.darkMode === true;
+    const serialized = JSON.stringify(palette);
+    if (serialized === this._lastTheme) return;
+    this._iframe.contentWindow.postMessage({ type: 'ha-theme', palette }, new URL(this._iframe.src).origin);
+    this._lastTheme = serialized;
   }
 
   _escapeAttr(str) {

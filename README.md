@@ -8,6 +8,7 @@ A self-hosted smart home dashboard for organizing web services, devices, and net
 - **Interactive SSH/Telnet terminal** — full xterm.js web terminal with WebSocket bridge for both SSH and Telnet; connect to saved servers or any host with colored terminal output, automatic resizing, and error recovery
 - **Saved commands** — store frequently used commands per SSH server; run them with one click directly in the terminal
 - **Dashboard sections** — organize links by category with Material Icons support and drag-and-drop reordering
+- **Remembered appearance** — choose Violet, Simple, or Home Assistant from the header. Each browser remembers its choice. Home Assistant mode follows the active HA colors live when embedded; opening the dashboard directly uses the last received HA colors, or a neutral fallback until connected to HA.
 - **SSH/Telnet support** — manage saved servers or connect to any host freely; SSH and Telnet protocol support
 - **Persistent storage** — SQLite database stores sections, credentials, server configs, and saved commands
 - **Security** — bearer-token sessions with validation on mount, AES-256-GCM encrypted SSH passwords at rest, login rate limiting

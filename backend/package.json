@@ -1,7 +1,7 @@
 {
   "name": "violetden-backend",
-  "version": "0.2.4",
-  "description": "VioletDen Backend — API for self-hosted smart home dashboard",
+  "version": "0.2.5",
+  "description": "VioletDen Backend \u2014 API for self-hosted smart home dashboard",
   "dependencies": {
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",

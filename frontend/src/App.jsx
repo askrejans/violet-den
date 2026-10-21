@@ -6,6 +6,8 @@ import Onboarding from './Onboarding';
 import IconPicker, { isMaterialIcon } from './IconPicker';
 import { api, haAuth, setHaMode, isHaMode, setToken, getToken } from './api';
 import SettingsPanel from './SettingsPanel';
+import ThemeSwitcher from './ThemeSwitcher';
+import useTheme from './useTheme';
 
 /* Render a stored icon value — Material Icon name or emoji/text */
 function IconDisplay({ value }) {
@@ -261,7 +263,7 @@ function AddSectionForm({ onAdd, onCancel }) {
    APP — Main component with view/edit mode
    ══════════════════════════════════════════════════════════════ */
 /* Dashboard content — rendered inside AuthWrapper so auth token is always available */
-function Dashboard({ showSettings, setShowSettings }) {
+function Dashboard({ showSettings, setShowSettings, theme, setTheme }) {
   const [sections,        setSections]        = useState([]);
   const [loading,         setLoading]         = useState(true);
   const [saving,          setSaving]          = useState(false);
@@ -341,6 +343,7 @@ function Dashboard({ showSettings, setShowSettings }) {
           <h1>VioletDen</h1>
         </div>
         <div className="header-actions">
+          <ThemeSwitcher value={theme} onChange={setTheme} />
           <button className="btn-settings" onClick={() => setShowSettings(true)} title="Settings">
             <span className="material-icons">settings</span>
           </button>
@@ -416,6 +419,7 @@ function Dashboard({ showSettings, setShowSettings }) {
    Supports standalone mode and Home Assistant embedded mode.
    ══════════════════════════════════════════════════════════════ */
 function App() {
+  const [theme, setTheme] = useTheme();
   const [checking,      setChecking]      = useState(true);
   const [setupComplete, setSetupComplete] = useState(false);
   const [haAuthed,      setHaAuthed]      = useState(false);
@@ -473,7 +477,7 @@ function App() {
   if (isHaMode() && haAuthed) {
     return (
       <div>
-        <Dashboard key={refreshKey} showSettings={showSettings} setShowSettings={setShowSettings} />
+        <Dashboard key={refreshKey} showSettings={showSettings} setShowSettings={setShowSettings} theme={theme} setTheme={setTheme} />
         {showSettings && (
           <SettingsPanel onClose={() => { setShowSettings(false); setRefreshKey(k => k + 1); }} />
         )}
@@ -503,7 +507,7 @@ function App() {
 
   return (
     <AuthWrapper>
-      <Dashboard key={refreshKey} showSettings={showSettings} setShowSettings={setShowSettings} />
+      <Dashboard key={refreshKey} showSettings={showSettings} setShowSettings={setShowSettings} theme={theme} setTheme={setTheme} />
       {showSettings && (
         <SettingsPanel onClose={() => { setShowSettings(false); setRefreshKey(k => k + 1); }} />
       )}
