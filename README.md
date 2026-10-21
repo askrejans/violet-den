@@ -17,6 +17,7 @@ A self-hosted smart home dashboard for organizing web services, devices, and net
 - **Onboarding wizard** — guided first-run setup (before login) with mandatory credential creation and preset auto-population from `.env`
 - **Configurable ports** — all exposed ports (HTTP, HTTPS, backend) configurable via `.env`
 - **Dockerized** — three-container stack (frontend, backend, nginx) with named volumes for persistence; internal services not exposed to host
+- **Production frontend** — Docker builds the optimized Vite bundle and serves it with nginx, gzip, and immutable caching for hashed assets. HTML and runtime presets remain fresh across deployments; the Vite development server is only used by `npm run dev` locally.
 - **Home Assistant integration** — embed VioletDen as a sidebar panel in Home Assistant via `panel_custom`; single-container deployment with automatic HA auth passthrough, no separate login required
 
 ## Screenshots
@@ -127,7 +128,7 @@ The Vite dev server proxies `/api` and `/ws` requests to `http://localhost:4000`
 ```
 ┌────────────────┐      ┌──────────────┐      ┌──────────────┐
 │     nginx      │─────▶│   frontend   │      │   backend    │
-│ :80 → :443     │      │  Vite :5173  │      │ Express :4000│
+│ :80 → :443     │      │ nginx :5173  │      │ Express :4000│
 │ (envsubst tpl) │─────▶│              │─────▶│              │
 └────────────────┘      └──────────────┘      │  SQLite DB   │
       │                      │                │  SSH/Telnet  │
@@ -137,7 +138,7 @@ The Vite dev server proxies `/api` and `/ws` requests to `http://localhost:4000`
 ```
 
 - **nginx** — TLS termination (self-signed or Let's Encrypt), serves content on both HTTP and HTTPS, reverse proxy with `envsubst` template for configurable backend port
-- **frontend** — React 19 SPA with Vite 8; internal only (not exposed to host)
+- **frontend** — React 19 production bundle built with Vite 8 and served by nginx; internal only (not exposed to host)
 - **backend** — Express 5 API with SQLite, ssh2, and WebSocket terminal bridge; internal only
 
 ### Tech Stack

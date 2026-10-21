@@ -13,7 +13,7 @@ Supports two deployment modes (both Docker-based, installable as systemd service
 ```
 ┌────────────────┐      ┌──────────────┐      ┌──────────────┐
 │     nginx      │─────▶│   frontend   │      │   backend    │
-│ :80 → :443     │      │  Vite :5173  │      │ Express :4000│
+│ :80 → :443     │      │ nginx :5173  │      │ Express :4000│
 │ (envsubst tpl) │─────▶│              │─────▶│              │
 └────────────────┘      └──────────────┘      │  SQLite DB   │
       │                      │                │  SSH/Telnet  │
@@ -26,7 +26,7 @@ Supports two deployment modes (both Docker-based, installable as systemd service
 
 Three Docker containers behind an nginx reverse proxy:
 - **nginx** — TLS termination (auto-generated self-signed cert), HTTP→HTTPS redirect, `envsubst` template for configurable backend port. Config is `nginx.conf.template` processed by `entrypoint.sh`.
-- **frontend** — React 19 SPA served by Vite 8 dev server. Internal only (`expose`, not `ports`).
+- **frontend** — Built React 19 SPA served by nginx on port 5173, with gzip and hashed-asset caching. Runtime preset sections are generated at container startup. Internal only (`expose`, not `ports`).
 - **backend** — Express 5 API with SQLite (better-sqlite3), ssh2, ws. Internal only (`expose`, not `ports`).
 
 ### Home Assistant Mode (docker-compose.ha.yml)

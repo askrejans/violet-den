@@ -37,7 +37,7 @@ services:
       - violetden-backend
     restart: unless-stopped
 
-  # ── Frontend (Vite) ────────────────────────────────────
+  # ── Frontend (production static files) ──────────────────
   violetden-frontend:
     build:
       context: ./frontend
@@ -45,7 +45,6 @@ services:
       - "5173"
     environment:
       - VITE_PRESET_SECTIONS=${VITE_PRESET_SECTIONS}
-      - VITE_API_TARGET=http://violetden-backend:${BACKEND_PORT:-4000}
     depends_on:
       - violetden-backend
     restart: unless-stopped
